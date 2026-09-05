@@ -1,0 +1,151 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind scans only this app's sources by default; the framework's shared
+ * Vue components live in the linked package, so their directory is added as a
+ * content source for the utility classes they do use.
+ */
+@source '../node_modules/@noob-audio-engineering/noob-vst-webgui-framework/crates/noob-vst-webgui-framework/web/vue';
+
+/* The plug-in's own colour. Everything on the panel is derived from it, so
+   changing one line changes the face and nothing else. */
+:root {
+  --accent: #a78bfa;
+  --accent-dim: #6d5bb5;
+  --panel: #14111f;
+  --panel-2: #1a1626;
+  --line: #2a2440;
+  --dim: #8b84a3;
+  --faint: #5b5470;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A control being dragged should not select the label beside it. */
+.nodrag {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/*
+ * The framework's controls arrive with class names and no appearance --- that
+ * is the framework's rule, and the right one: it holds shared behaviour and no
+ * look at all, so every plug-in's face belongs to the plug-in. This is Noob
+ * Reverberator's face for them.
+ *
+ * Without these rules the controls still work and look like nothing: a toggle
+ * renders its two labels either side of an invisible track, which reads as one
+ * run-together word, and a segmented control runs all of its options together.
+ * That is what this panel looked like until I wrote them.
+ */
+.noob-vst-webgui-framework-toggle.button {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.noob-vst-webgui-framework-toggle.button:hover {
+  border-color: var(--accent-dim);
+  color: #cfc9e3;
+}
+.noob-vst-webgui-framework-toggle.button.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: #ede9fe;
+}
+
+.noob-vst-webgui-framework-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.noob-vst-webgui-framework-segmented.vertical {
+  flex-direction: column;
+}
+.noob-vst-webgui-framework-segment {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  border-radius: 5px;
+  padding: 3px 7px;
+  font-size: inherit;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.noob-vst-webgui-framework-segment:hover {
+  border-color: var(--accent-dim);
+  color: #cfc9e3;
+}
+.noob-vst-webgui-framework-segment.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: #ede9fe;
+}
+
+/* The switch and rocker variants, for completeness: nothing on this panel
+   uses them today, and a control that appears later should not appear naked. */
+.noob-vst-webgui-framework-toggle.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dim);
+}
+.noob-vst-webgui-framework-toggle.switch .track {
+  width: 30px;
+  height: 15px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  position: relative;
+  cursor: pointer;
+}
+.noob-vst-webgui-framework-toggle.switch.is-on .track {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.noob-vst-webgui-framework-toggle.switch .knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--dim);
+  transition: transform 90ms ease, background 90ms ease;
+}
+.noob-vst-webgui-framework-toggle.switch.is-on .knob {
+  transform: translateX(15px);
+  background: var(--accent);
+}
+.noob-vst-webgui-framework-toggle.rocker {
+  display: inline-flex;
+  gap: 2px;
+}
+.noob-vst-webgui-framework-toggle.rocker .pos {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.noob-vst-webgui-framework-toggle.rocker .pos.is-on {
+  border-color: var(--accent);
+  color: #ede9fe;
+}
