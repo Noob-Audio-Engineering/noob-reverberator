@@ -12,3 +12,6 @@
 //! `docs/BENCHMARK.md` is where that is checked.
 
 pub mod dsp;
+
+#[cfg(feature = "plugin")]
+pub mod plugin;
