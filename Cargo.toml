@@ -1,0 +1,65 @@
+[package]
+name = "noob-reverberator"
+description = "Noob Reverberator, a free algorithmic reverb whose decay time is drawn against frequency and fitted into the network, with its editor in the OS web view over noob-vst-webgui-framework"
+readme = "README.md"
+version = "0.1.0"
+authors = ["Ely Erin Fox"]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Noob-Audio-Engineering/noob-reverberator"
+homepage = "https://github.com/Noob-Audio-Engineering/noob-reverberator"
+# A plug-in, not a library: nothing here goes to crates.io.
+publish = false
+
+# How this plug-in presents itself in the plug-in manager. It lives here so
+# each plug-in owns its own description --- the manager has no list of them.
+[package.metadata.noob]
+kind = "effect"
+name = "Noob Reverberator"
+accent = "#a78bfa"
+tagline = "An algorithmic reverb whose decay time is drawn against frequency and fitted into the network."
+features = [
+    "Decay drawn as a curve against frequency, not a pair of crossovers",
+    "The realised decay is measured against the drawn one and published",
+    "Architecture, era and geometry are separate axes",
+    "Rooms, plates, springs, and the machines that are not rooms at all",
+    "The interface is the OS web view, not a bitmap",
+]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "noob-reverberator-standalone"
+path = "src/bin/standalone.rs"
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"
+
+[features]
+default = []
+# Build the real VST3 / CLAP plugin (pulls nih-plug from git and embeds
+# `web/dist`, so run `npm run build` in `web/` first). Without it the crate is
+# just the DSP plus the standalone dev server.
+plugin = ["dep:nih_plug", "dep:noob-vst-webgui-framework-nih", "dep:include_dir"]
+
+[dependencies]
+noob-vst-webgui-framework = { git = "https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework" }
+noob-vst-webgui-framework-nih = { git = "https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework", optional = true }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", optional = true }
+include_dir = { version = "0.7", optional = true }
+log = "0.4"
+env_logger = "0.11"
+serde_json = "1"
+rustfft = "6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Host-driven editor resizing needs the patched nih-plug the framework is
+# built against; Cargo only honours patches in the root manifest, so every
+# plug-in repository carries this line.
+[patch."https://github.com/robbert-vdh/nih-plug.git"]
+nih_plug = { git = "https://github.com/Noob-Audio-Engineering/nih-plug.git", branch = "host-resize" }
