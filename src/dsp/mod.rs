@@ -6,8 +6,11 @@
 //! everything else is the reverberator those lines are wired into.
 
 pub mod decay;
+pub mod delay;
+pub mod fdn;
 pub mod filters;
 pub mod loss;
+pub mod measure;
 pub mod svf;
 
 #[cfg(test)]

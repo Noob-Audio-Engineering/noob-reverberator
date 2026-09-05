@@ -148,6 +148,30 @@ impl Curve {
         // property of the curve rather than of the fit.
         (self.base / inv.max(1.0 / (MAX_T60 / MIN_T60))).clamp(MIN_T60, MAX_T60)
     }
+
+    /// The decay this curve asks for **averaged over an octave** around `f`.
+    ///
+    /// A band-passed measurement cannot see a point on the curve; it sees a
+    /// band. Comparing what it reports against `t60(f)` therefore compares two
+    /// different quantities, and it does so worst exactly where the curve is
+    /// steepest --- at a shelf's corner, which is where somebody looking for a
+    /// fault would look first. Measured at a 250 Hz shelf, that mismatch alone
+    /// accounted for 0.18 octaves.
+    ///
+    /// Averaged in the logarithm of the time, over the logarithm of the
+    /// frequency, because both are how the quantities are heard and how they
+    /// are drawn.
+    pub fn t60_over_octave(&self, f: f32) -> f32 {
+        const STEPS: usize = 17;
+        let lo = f / std::f32::consts::SQRT_2;
+        let hi = f * std::f32::consts::SQRT_2;
+        let mut acc = 0.0f32;
+        for i in 0..STEPS {
+            let t = i as f32 / (STEPS - 1) as f32;
+            acc += self.t60(lo * (hi / lo).powf(t)).ln();
+        }
+        (acc / STEPS as f32).exp()
+    }
 }
 
 /// The shortest decay the network will be asked for. Below this the loss per

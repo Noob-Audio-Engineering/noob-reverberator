@@ -103,3 +103,157 @@ fn the_realised_decay_follows_the_drawn_curve() {
         "worst error {worst:.4} octaves of decay time, at {worst_at:.0} Hz"
     );
 }
+
+/// A delay line has to return what was put into it, at the delay asked for.
+///
+/// Read at whole numbers of samples the answer is a stored value and the test
+/// is trivial; read between them it is the interpolator, and the interpolator
+/// is where an off-by-one hides. A Lagrange interpolator of any order
+/// reproduces a straight line exactly, so a ramp pushed through and read back
+/// at fractional delays has an answer that is known in closed form --- which
+/// is the only kind of test worth writing here, because a plausible-looking
+/// waveform is exactly what an off-by-one produces.
+#[test]
+fn a_fractional_read_lands_where_it_says() {
+    use super::delay::Delay;
+    let mut line = Delay::with_capacity(64);
+    // A ramp, so the value at any delay is known: pushing 0,1,2,... means the
+    // sample `d` back is `n - d`.
+    for n in 0..40 {
+        line.push(n as f32);
+    }
+    let last = 39.0f32;
+    for &d in &[1.0f32, 1.5, 2.0, 2.25, 7.0, 7.5, 12.75, 20.0] {
+        let got = line.read(d);
+        let want = last - d;
+        assert!(
+            (got - want).abs() < 1e-3,
+            "read({d}) gave {got}, and the ramp says {want}"
+        );
+    }
+}
+
+/// An allpass must be an allpass: whatever goes in comes out at the same
+/// level, at every frequency. A chain of them is how this reverb turns a few
+/// echoes into a diffuse sound, and one whose gain is not flat would colour
+/// every mode that used it.
+#[test]
+fn the_allpass_passes_every_frequency_at_the_same_level() {
+    use super::delay::Allpass;
+    use std::f32::consts::TAU;
+    for &f in &[100.0f32, 700.0, 3_000.0, 9_000.0] {
+        let mut ap = Allpass::new(512);
+        ap.set(97.0, 0.7);
+        // Long enough for the transient to leave, then measure over whole
+        // cycles so the average is not reading a partial one.
+        let mut peak_in = 0.0f32;
+        let mut peak_out = 0.0f32;
+        for n in 0..20_000 {
+            let x = (TAU * f * n as f32 / 48_000.0).sin();
+            let y = ap.process(x);
+            if n > 10_000 {
+                peak_in = peak_in.max(x.abs());
+                peak_out = peak_out.max(y.abs());
+            }
+        }
+        let db = 20.0 * (peak_out / peak_in).log10();
+        assert!(
+            db.abs() < 0.1,
+            "{f} Hz came out {db:.3} dB from where it went in"
+        );
+    }
+}
+
+/// The claim, end to end: run an impulse through the network and read the
+/// decay back out of the audio.
+///
+/// This shares nothing with the fit. The fit reads its own filters; this
+/// filters the tail into octaves and integrates the energy backwards, the way
+/// a room is measured. If the two ever disagree, the audio is right.
+#[test]
+fn the_tail_decays_at_the_rate_the_curve_asks_for() {
+    use super::fdn::{Fdn, prime_lengths};
+    use super::measure::t60_in_band;
+
+    const FS: f32 = 48_000.0;
+    let mut curve = Curve {
+        base: 2.0,
+        ..Default::default()
+    };
+    curve.bands[0] = Band {
+        on: true,
+        shape: Shape::LowShelf,
+        freq: 250.0,
+        mult: 2.0,
+        width: 1.0,
+    };
+    curve.bands[1] = Band {
+        on: true,
+        shape: Shape::HighShelf,
+        freq: 5_000.0,
+        mult: 0.5,
+        width: 1.0,
+    };
+
+    let mut fdn = Fdn::new(8, 8192, FS);
+    let mut lens = Vec::new();
+    prime_lengths(8, 900.0, 2_400.0, &mut lens);
+    fdn.set_lengths(&lens, &curve);
+
+    // Six seconds: the longest band asks for four, and the measurement needs
+    // to see thirty-five decibels of it.
+    let n = (FS * 6.0) as usize;
+    let mut ir = vec![0.0f32; n];
+    let mut inject = vec![0.0f32; 8];
+    let mut out = vec![0.0f32; 8];
+    for (i, sample) in ir.iter_mut().enumerate() {
+        let x = if i == 0 { 1.0 } else { 0.0 };
+        for (k, v) in inject.iter_mut().enumerate() {
+            // Alternating signs so the impulse does not arrive in phase on
+            // every line and cancel through the mix.
+            *v = if k % 2 == 0 { x } else { -x };
+        }
+        fdn.process(&inject, &mut out);
+        *sample = out.iter().sum::<f32>() * 0.25;
+    }
+
+    let mut worst = 0.0f32;
+    let mut worst_at = 0.0f32;
+    for &f in &[125.0f32, 250.0, 500.0, 1_000.0, 2_000.0, 4_000.0, 8_000.0] {
+        let Some(got) = t60_in_band(&ir, FS, f) else {
+            panic!("{f} Hz band did not decay far enough to be measured");
+        };
+        // Against the curve averaged over the same octave the band-pass
+        // covers, not against a point on it --- the measurement cannot see a
+        // point, and comparing it to one is comparing two different things.
+        let want = curve.t60_over_octave(f);
+        let err = (got / want).log2().abs();
+        println!("  {f:>7.0} Hz  asked {want:>6.3} s  measured {got:>6.3} s  ({err:.4} oct)");
+        if err > worst {
+            worst = err;
+            worst_at = f;
+        }
+    }
+    println!("worst {worst:.4} octaves at {worst_at:.0} Hz");
+    // A quarter of an octave. Wider than the fit's own error on purpose, and
+    // the reason is a property of the measurement rather than slack:
+    //
+    // Every band except one lands inside 0.075 octaves. The exception is the
+    // band sitting on the shelf's corner, at 0.16, and it is long rather than
+    // short. A band-passed energy decay is a sum of exponentials, and a `T30`
+    // fitted to it leans towards the **slowest** of them, because those are
+    // what is left by the time the curve has fallen thirty decibels. Where the
+    // curve is steep, one octave holds decays a factor of two apart and the
+    // slow side wins. Averaging the target over the octave --- which this test
+    // does --- corrects the centre of the band but not that bias.
+    //
+    // It could be chased by modelling the expected energy curve and fitting it
+    // the same way, and I have not, because that model would share its
+    // assumptions with the engine and the measurement would stop being
+    // independent of the thing it is measuring. Tightening this is a real
+    // improvement; widening it is giving up on the claim.
+    assert!(
+        worst < 0.25,
+        "worst {worst:.4} octaves of decay time, at {worst_at:.0} Hz"
+    );
+}

@@ -35,6 +35,9 @@ pub enum Kind {
     Bell,
     LowShelf,
     HighShelf,
+    /// Not used to shape anything --- it is the band-pass the measurement
+    /// splits a tail into octaves with, so a decay time can be read per band.
+    BandPass,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -116,6 +119,13 @@ impl Svf {
                 self.m0 = a * a;
                 self.m1 = self.k * (1.0 - a) * a;
                 self.m2 = 1.0 - a * a;
+            }
+            Kind::BandPass => {
+                self.g = t;
+                self.k = 1.0 / q;
+                self.m0 = 0.0;
+                self.m1 = 1.0;
+                self.m2 = 0.0;
             }
         }
         self.a1 = 1.0 / (1.0 + self.g * (self.g + self.k));
