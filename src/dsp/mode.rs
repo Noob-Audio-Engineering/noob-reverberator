@@ -63,6 +63,11 @@ pub struct Mode {
     /// Which era's colouring, and how much of it.
     pub era: usize,
     pub era_amount: f32,
+    /// How much of the input goes through the tape before the tank.
+    pub tape: f32,
+    /// How much vowel is put on the tail, and which one.
+    pub choir: f32,
+    pub vowel: f32,
 }
 
 /// A mode with everything quiet, to be written over.
@@ -85,6 +90,9 @@ const fn base(name: &'static str, blurb: &'static str, arch: Arch) -> Mode {
         shape: ShapeKind::Off,
         era: 0,
         era_amount: 0.0,
+        tape: 0.0,
+        choir: 0.0,
+        vowel: 0.0,
     }
 }
 
@@ -367,6 +375,134 @@ pub static MODES: &[Mode] = &[
             "Nineteen Eighty Four",
             "A plate with the word length of the machine that made it famous.",
             Arch::Plate,
+        )
+    },
+    Mode {
+        lines: 12,
+        size: 1.1,
+        decay: 2.2,
+        density: 0.55,
+        attack: 6.0,
+        mod_rate: 0.6,
+        mod_depth: 7.0,
+        mod_random: 0.4,
+        early: 0.15,
+        tape: 0.75,
+        ..base(
+            "Magneto",
+            "A multi-head tape echo in front of the tank: every repeat gets its own tail.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 16,
+        size: 2.2,
+        decay: 7.0,
+        density: 0.9,
+        attack: 120.0,
+        mod_rate: 0.25,
+        mod_depth: 15.0,
+        mod_random: 0.6,
+        early: 0.05,
+        choir: 0.7,
+        vowel: 0.0,
+        ..base(
+            "Chorale",
+            "Vowels on the tail, so it sings rather than rings. Sweep Vowel.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 16,
+        size: 2.4,
+        decay: 9.0,
+        density: 0.95,
+        attack: 150.0,
+        mod_rate: 0.3,
+        mod_depth: 16.0,
+        mod_random: 0.5,
+        early: 0.04,
+        shift: 12.0,
+        shift_mix: 0.45,
+        choir: 0.55,
+        vowel: 2.0,
+        ..base(
+            "Choir Loft",
+            "The chorale an octave up as well: a room full of people who are not there.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 10,
+        size: 0.9,
+        decay: 2.0,
+        density: 0.5,
+        attack: 4.0,
+        mod_rate: 0.8,
+        mod_depth: 6.0,
+        mod_random: 0.35,
+        early: 0.3,
+        tape: 0.6,
+        era: 1,
+        era_amount: 0.8,
+        ..base(
+            "Tape Chamber",
+            "The tape echo through a chamber, with the converters of the day on it.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        size: 1.4,
+        decay: 3.0,
+        density: 0.35,
+        early: 0.0,
+        ..base(
+            "Long Spring",
+            "A slacker, longer coil: more chirp, and further to travel.",
+            Arch::Spring,
+        )
+    },
+    Mode {
+        lines: 16,
+        size: 3.6,
+        decay: 30.0,
+        density: 0.97,
+        attack: 260.0,
+        mod_rate: 0.18,
+        mod_depth: 24.0,
+        mod_random: 0.75,
+        early: 0.02,
+        ..base(
+            "Supermassive",
+            "Slowest to arrive and half a minute to leave. Freeze holds it.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        size: 0.75,
+        decay: 0.9,
+        density: 0.25,
+        early: 0.6,
+        ..base(
+            "Nonlinear Plate",
+            "A short bright sheet with the gate on: eighties drums, unashamedly.",
+            Arch::Plate,
+        )
+    },
+    Mode {
+        lines: 8,
+        size: 0.35,
+        decay: 0.45,
+        density: 0.95,
+        attack: 0.0,
+        mod_rate: 1.5,
+        mod_depth: 2.0,
+        mod_random: 0.2,
+        early: 0.7,
+        ..base(
+            "Tight Ambience",
+            "Barely a reverb: a size and a little air, for things that must stay dry.",
+            Arch::Network,
         )
     },
 ];

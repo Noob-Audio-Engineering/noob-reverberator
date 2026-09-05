@@ -439,3 +439,144 @@ fn the_shifter_transposes_by_what_it_was_asked_for() {
         );
     }
 }
+
+/// The tape's heads have to land where the heads are.
+///
+/// A multi-head echo whose repeats are evenly spaced is a plain delay with a
+/// shorter time --- it sounds like an echo either way, which is why this
+/// measures where the repeats actually arrive rather than trusting the taps.
+#[test]
+fn the_tape_repeats_at_its_heads() {
+    use super::tape::Tape;
+
+    const FS: f32 = 48_000.0;
+    let mut tape = Tape::new(FS, 2_200.0);
+    // Wobble off, so an arrival is where it was put and not where it drifted.
+    tape.set(400.0, 4, 0.0, 0.0, 0.0);
+
+    let n = (FS * 0.6) as usize;
+    let mut ir = vec![0.0f32; n];
+    for (i, s) in ir.iter_mut().enumerate() {
+        *s = tape.process(if i == 0 { 1.0 } else { 0.0 });
+    }
+
+    // Where the energy actually is: every sample above a tenth of the peak.
+    let peak = ir.iter().fold(0.0f32, |a, b| a.max(b.abs()));
+    let mut arrivals: Vec<f32> = Vec::new();
+    let mut i = 0;
+    while i < n {
+        if ir[i].abs() > peak * 0.1 {
+            arrivals.push(i as f32 / FS * 1000.0);
+            i += (FS * 0.02) as usize; // one arrival per burst
+        } else {
+            i += 1;
+        }
+    }
+    println!("  tape arrivals (ms): {arrivals:?}");
+    // Four heads at a quarter, a half, three quarters and all of 400 ms.
+    let want = [100.0f32, 200.0, 300.0, 400.0];
+    assert_eq!(
+        arrivals.len(),
+        want.len(),
+        "expected four repeats, got {arrivals:?}"
+    );
+    for (got, w) in arrivals.iter().zip(want.iter()) {
+        assert!(
+            (got - w).abs() < 2.0,
+            "a head landed at {got:.1} ms and belongs at {w:.1} ms"
+        );
+    }
+}
+
+/// The choir has to put its resonances where the vowel's formants are, and
+/// leave them there when the pitch of what it is filtering changes --- which
+/// is the whole difference between a vowel and a filter sweep.
+#[test]
+fn the_choir_puts_its_formants_where_the_vowel_is() {
+    use super::formant::Choir;
+    use std::f32::consts::TAU;
+
+    const FS: f32 = 48_000.0;
+
+    // Measured by driving it with a sine at each frequency and reading the
+    // level out: a formant is a place where more comes back than went in.
+    let gain_at = |vowel: f32, f: f32| -> f32 {
+        let mut c = Choir::new(FS);
+        c.set(vowel, 0.0, 1.0, 1.0);
+        let mut peak = 0.0f32;
+        for i in 0..12_000 {
+            let x = (TAU * f * i as f32 / FS).sin();
+            let (l, _) = c.process(x, x);
+            if i > 6_000 {
+                peak = peak.max(l.abs());
+            }
+        }
+        20.0 * peak.max(1e-9).log10()
+    };
+
+    // "Ah" is 730 and 1090 Hz; "Ee" is 270 and 2290. Each should be louder at
+    // its own first formant than the other vowel is there.
+    let ah_at_730 = gain_at(0.0, 730.0);
+    let ee_at_730 = gain_at(2.0, 730.0);
+    let ee_at_2290 = gain_at(2.0, 2_290.0);
+    let ah_at_2290 = gain_at(0.0, 2_290.0);
+    println!("  Ah@730 {ah_at_730:.1} dB, Ee@730 {ee_at_730:.1} dB");
+    println!("  Ee@2290 {ee_at_2290:.1} dB, Ah@2290 {ah_at_2290:.1} dB");
+    assert!(
+        ah_at_730 > ee_at_730 + 3.0,
+        "Ah should be louder than Ee at 730 Hz: {ah_at_730:.1} against {ee_at_730:.1}"
+    );
+    assert!(
+        ee_at_2290 > ah_at_2290 + 3.0,
+        "Ee should be louder than Ah at 2290 Hz: {ee_at_2290:.1} against {ah_at_2290:.1}"
+    );
+}
+
+/// Every preset has to name things that exist.
+///
+/// A preset is a mode name and a list of parameter ids, both written by hand.
+/// A typo in either produces a button that half works --- the mode changes and
+/// one control does not, or nothing happens at all --- and it is exactly the
+/// kind of fault nobody finds, because a reverb after a preset always sounds
+/// like *something*.
+#[test]
+fn every_preset_names_a_mode_and_parameters_that_exist() {
+    use super::mode::MODES;
+    use super::params::param_specs;
+    use super::preset::PRESETS;
+
+    let ids: Vec<String> = param_specs().into_iter().map(|s| s.id).collect();
+    for p in PRESETS {
+        assert!(
+            MODES.iter().any(|m| m.name == p.mode),
+            "preset \"{}\" starts from mode \"{}\", which is not in the table",
+            p.name,
+            p.mode
+        );
+        for (id, v) in p.set {
+            assert!(
+                ids.iter().any(|k| k == id),
+                "preset \"{}\" sets \"{id}\", which is not a parameter",
+                p.name
+            );
+            let spec = param_specs()
+                .into_iter()
+                .find(|s| &s.id == id)
+                .expect("just checked it is there");
+            assert!(
+                *v >= spec.min - 1e-4 && *v <= spec.max + 1e-4,
+                "preset \"{}\" sets \"{id}\" to {v}, outside its range {}..{}",
+                p.name,
+                spec.min,
+                spec.max
+            );
+        }
+    }
+    let json = super::preset::factory_json();
+    let n = json.as_array().map(|a| a.len()).unwrap_or(0);
+    assert_eq!(n, PRESETS.len(), "factory_json dropped presets");
+    println!(
+        "  {} presets, all resolving; factory_json carries {n}",
+        PRESETS.len()
+    );
+}

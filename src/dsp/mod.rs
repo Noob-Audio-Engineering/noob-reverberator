@@ -13,6 +13,7 @@ pub mod early;
 pub mod engine;
 pub mod fdn;
 pub mod filters;
+pub mod formant;
 pub mod loss;
 pub mod measure;
 pub mod mode;
@@ -20,9 +21,11 @@ pub mod modulate;
 pub mod params;
 pub mod pitch;
 pub mod plate;
+pub mod preset;
 pub mod shape;
 pub mod spring;
 pub mod svf;
+pub mod tape;
 
 #[cfg(test)]
 mod tests;
@@ -66,6 +69,7 @@ pub fn bridge_meta(sr: f32, standalone: bool) -> Value {
         "band_shapes": params::BAND_SHAPE_NAMES,
         "shapes": shape::SHAPE_NAMES,
         "eras": colour::ERA_NAMES,
+        "presets": preset::factory_json(),
         "modes": mode::MODES.iter().map(|m| json!({
             "name": m.name,
             "blurb": m.blurb,

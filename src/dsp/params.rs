@@ -11,6 +11,7 @@ use noob_vst_webgui_framework::ParamSpec;
 
 use super::colour::ERA_NAMES;
 use super::decay::MAX_BANDS;
+use super::formant::VOWEL_NAMES;
 use super::mode;
 use super::shape::SHAPE_NAMES;
 
@@ -152,6 +153,57 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .default(100.0)
             .integer()
             .group("spring"),
+        ParamSpec::new("tape_mix", "Tape Amount")
+            .range(0.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("tape"),
+        ParamSpec::new("tape_time", "Tape Time")
+            .range(20.0, 2000.0)
+            .default(320.0)
+            .unit("ms")
+            .log()
+            .group("tape"),
+        ParamSpec::new("tape_heads", "Tape Heads")
+            .range(1.0, 4.0)
+            .default(3.0)
+            .integer()
+            .group("tape"),
+        ParamSpec::new("tape_feedback", "Tape Feedback")
+            .range(0.0, 98.0)
+            .default(35.0)
+            .unit("%")
+            .group("tape"),
+        ParamSpec::new("tape_wobble", "Tape Wobble")
+            .range(0.0, 100.0)
+            .default(30.0)
+            .unit("%")
+            .group("tape"),
+        ParamSpec::new("tape_drive", "Tape Drive")
+            .range(0.0, 100.0)
+            .default(30.0)
+            .unit("%")
+            .group("tape"),
+        ParamSpec::new("choir_amount", "Choir Amount")
+            .range(0.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("choir"),
+        ParamSpec::new("choir_vowel", "Vowel")
+            .range(0.0, (VOWEL_NAMES.len() - 1) as f32)
+            .default(0.0)
+            .decimals(2)
+            .group("choir"),
+        ParamSpec::new("choir_spread", "Choir Size")
+            .range(-100.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("choir"),
+        ParamSpec::new("choir_resonance", "Choir Resonance")
+            .range(0.0, 100.0)
+            .default(50.0)
+            .unit("%")
+            .group("choir"),
         ParamSpec::new("lines", "Lines")
             .range(4.0, 16.0)
             .default(12.0)

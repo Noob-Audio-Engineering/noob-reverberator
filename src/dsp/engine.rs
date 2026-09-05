@@ -8,12 +8,14 @@ use super::delay::Delay;
 use super::diffuse::Diffuser;
 use super::early::Early;
 use super::fdn::{Fdn, MAX_LINES, prime_lengths};
+use super::formant::Choir;
 use super::mode::{Arch, MODES};
 use super::modulate::Modulator;
 use super::pitch::Shifter;
 use super::plate::Plate;
 use super::shape::{Kind as ShapeKind, Shaper};
 use super::spring::Spring;
+use super::tape::Tape;
 
 /// Everything the audio thread needs, read once per block.
 #[derive(Debug, Clone, Copy)]
@@ -46,6 +48,16 @@ pub struct Settings {
     pub tension: f32,
     pub sections: usize,
     pub lines: usize,
+    pub tape_mix: f32,
+    pub tape_time: f32,
+    pub tape_heads: usize,
+    pub tape_feedback: f32,
+    pub tape_wobble: f32,
+    pub tape_drive: f32,
+    pub choir_amount: f32,
+    pub choir_vowel: f32,
+    pub choir_spread: f32,
+    pub choir_resonance: f32,
     pub curve: Curve,
 }
 
@@ -80,6 +92,16 @@ pub struct ParamIx {
     pub tension: usize,
     pub sections: usize,
     pub lines: usize,
+    pub tape_mix: usize,
+    pub tape_time: usize,
+    pub tape_heads: usize,
+    pub tape_feedback: usize,
+    pub tape_wobble: usize,
+    pub tape_drive: usize,
+    pub choir_amount: usize,
+    pub choir_vowel: usize,
+    pub choir_spread: usize,
+    pub choir_resonance: usize,
     pub bands: [[usize; 5]; MAX_BANDS],
 }
 
@@ -134,6 +156,16 @@ impl ParamIx {
             tension: ix("tension"),
             sections: ix("sections"),
             lines: ix("lines"),
+            tape_mix: ix("tape_mix"),
+            tape_time: ix("tape_time"),
+            tape_heads: ix("tape_heads"),
+            tape_feedback: ix("tape_feedback"),
+            tape_wobble: ix("tape_wobble"),
+            tape_drive: ix("tape_drive"),
+            choir_amount: ix("choir_amount"),
+            choir_vowel: ix("choir_vowel"),
+            choir_spread: ix("choir_spread"),
+            choir_resonance: ix("choir_resonance"),
             bands,
         }
     }
@@ -189,6 +221,16 @@ pub fn read_settings(audio: &AudioHandle, ix: &ParamIx) -> Settings {
         tension: p(ix.tension) / 100.0,
         sections: p(ix.sections).round().max(1.0) as usize,
         lines: p(ix.lines).round().clamp(4.0, 16.0) as usize,
+        tape_mix: p(ix.tape_mix) / 100.0,
+        tape_time: p(ix.tape_time),
+        tape_heads: p(ix.tape_heads).round().max(1.0) as usize,
+        tape_feedback: p(ix.tape_feedback) / 100.0,
+        tape_wobble: p(ix.tape_wobble) / 100.0,
+        tape_drive: p(ix.tape_drive) / 100.0,
+        choir_amount: p(ix.choir_amount) / 100.0,
+        choir_vowel: p(ix.choir_vowel),
+        choir_spread: p(ix.choir_spread) / 100.0,
+        choir_resonance: p(ix.choir_resonance) / 100.0,
         curve,
     }
 }
@@ -210,6 +252,8 @@ pub struct Reverb {
     shift: [Shifter; 2],
     shaper: Shaper,
     colour: Colour,
+    tape: Tape,
+    choir: Choir,
     pre: [Delay; 2],
     mods: Vec<Modulator>,
     lens: Vec<f32>,
@@ -243,6 +287,8 @@ impl Reverb {
             shift: [Shifter::new(32_768), Shifter::new(32_768)],
             shaper: Shaper::new(fs),
             colour: Colour::new(fs),
+            tape: Tape::new(fs, 2_200.0),
+            choir: Choir::new(fs),
             pre: [
                 Delay::with_capacity((fs * MAX_PREDELAY_MS / 1000.0) as usize + 64),
                 Delay::with_capacity((fs * MAX_PREDELAY_MS / 1000.0) as usize + 64),
@@ -273,6 +319,8 @@ impl Reverb {
         }
         self.shaper.reset();
         self.colour.reset();
+        self.tape.clear();
+        self.choir.clear();
         for p in &mut self.pre {
             p.clear();
         }
@@ -297,6 +345,9 @@ impl Reverb {
         s.era = Era::from_index(m.era);
         s.era_amount = m.era_amount;
         s.lines = m.lines;
+        s.tape_mix = m.tape;
+        s.choir_amount = m.choir;
+        s.choir_vowel = m.vowel;
         s.curve.base = m.decay;
     }
 }
@@ -353,6 +404,19 @@ impl Reverb {
             .build(s.early_size, s.early_absorb, s.early_taps, s.width);
         self.shaper.set(s.shape, s.shape_hold);
         self.colour.set(s.era, s.era_amount, self.fs);
+        self.tape.set(
+            s.tape_time,
+            s.tape_heads,
+            s.tape_feedback,
+            s.tape_wobble,
+            s.tape_drive,
+        );
+        self.choir.set(
+            s.choir_vowel,
+            s.choir_spread,
+            s.choir_amount,
+            s.choir_resonance,
+        );
         self.pre_len = (s.predelay_ms.clamp(0.0, MAX_PREDELAY_MS) * self.fs / 1000.0).max(1.0);
         // A one-pole rise on the wet path. This is not a mode's build-up ---
         // that is a property of the line lengths --- it is the control
@@ -394,6 +458,18 @@ impl Reverb {
                 self.pre[0].read(self.pre_len),
                 self.pre[1].read(self.pre_len),
             );
+
+            // The tape sits between the pre-delay and the tank, which is what
+            // makes it a Magneto rather than an echo after a reverb: its
+            // repeats are what the room hears, so each one gets its own tail.
+            let (pl, pr) = if s.tape_mix > 0.0 {
+                let dry = 0.5 * (pl + pr);
+                let wet = self.tape.process(dry);
+                let m = s.tape_mix;
+                (pl * (1.0 - m) + wet * m, pr * (1.0 - m) + wet * m)
+            } else {
+                (pl, pr)
+            };
 
             let (el, er) = self.early.process(0.5 * (pl + pr));
 
@@ -444,6 +520,12 @@ impl Reverb {
                 wl += a * s.shift_mix;
                 wr += b * s.shift_mix;
             }
+
+            // The choir goes on the tail and not on the input: a vowel is
+            // made of resonances at fixed frequencies, and it is the dense
+            // late energy that has something at all of them for those
+            // resonances to find.
+            let (wl, wr) = self.choir.process(wl, wr);
 
             let (cl, cr) = self.colour.process(wl, wr);
             let mut ol = cl + el * s.early_level;
@@ -506,6 +588,15 @@ fn same(a: &Settings, b: &Settings) -> bool {
         && a.tension == b.tension
         && a.sections == b.sections
         && a.lines == b.lines
+        && a.tape_time == b.tape_time
+        && a.tape_heads == b.tape_heads
+        && a.tape_feedback == b.tape_feedback
+        && a.tape_wobble == b.tape_wobble
+        && a.tape_drive == b.tape_drive
+        && a.choir_vowel == b.choir_vowel
+        && a.choir_spread == b.choir_spread
+        && a.choir_amount == b.choir_amount
+        && a.choir_resonance == b.choir_resonance
         && curves_match(&a.curve, &b.curve)
 }
 

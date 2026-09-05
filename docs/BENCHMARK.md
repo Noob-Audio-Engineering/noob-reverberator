@@ -78,6 +78,14 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 | Swell | network | 6.00 s | 6.00 s | 0.019 oct at 125 Hz |
 | Nineteen Seventy Nine | network | 3.50 s | 2.92 s | 0.260 oct at 1000 Hz |
 | Nineteen Eighty Four | plate | 2.60 s | 2.10 s | 0.322 oct at 4000 Hz |
+| Magneto | network | 2.20 s | 2.48 s | 0.234 oct at 500 Hz |
+| Chorale | network | 7.00 s | 7.01 s | 0.006 oct at 125 Hz |
+| Choir Loft | network | 9.00 s | 9.01 s | 0.003 oct at 125 Hz |
+| Tape Chamber | network | 2.00 s | 1.79 s | 0.158 oct at 1000 Hz |
+| Long Spring | spring | 3.00 s | 2.54 s | 0.242 oct at 125 Hz |
+| Supermassive | network | 30.00 s | 30.01 s | 0.000 oct at 500 Hz |
+| Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.193 oct at 1000 Hz |
+| Tight Ambience | network | 0.45 s | 0.45 s | 0.033 oct at 500 Hz |
 
 ### What the era colouring does to the reading
 
@@ -91,6 +99,9 @@ The colouring sits on the tank's output, not inside its feedback, so it cannot c
 | Nineteen Eighty Four | off | 2.16 s |
 
 With the colouring turned down, the network era mode measures its drawn decay to within a hundredth of a second. So the colouring is changing what the measurement can see and not what the tank is doing: reducing the word length and the rate inside it raises the floor that the energy curve is fitted against, and a curve that runs into a floor early reads as a shorter decay. The plate era mode moves hardly at all, because what is wrong there is the plate's lap and not the era.
+
+
+The tape modes read **long**, and that is the tape rather than an error: it sits in front of the tank, so every repeat is a fresh excitation and the energy in the room really does last past the tank's own decay. What is measured there is the tail of an echo into a reverb, which is a different quantity from the reverb's decay, and is the point of the machine.
 
 
 The plate and the spring are looser than the network modes, and their own module comments say why: their loops run through allpasses, whose delay depends on frequency, while the loss is fitted to one number for a lap. No single number can express a delay that varies, so what is left is published rather than tuned away with a fudge factor.

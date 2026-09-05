@@ -51,6 +51,16 @@ fn plain(decay: f32) -> Settings {
         tension: 0.6,
         sections: 100,
         lines: 12,
+        tape_mix: 0.0,
+        tape_time: 320.0,
+        tape_heads: 3,
+        tape_feedback: 0.35,
+        tape_wobble: 0.3,
+        tape_drive: 0.3,
+        choir_amount: 0.0,
+        choir_vowel: 0.0,
+        choir_spread: 0.0,
+        choir_resonance: 0.5,
         curve: Curve {
             base: decay,
             ..Default::default()
@@ -276,6 +286,14 @@ nothing to measure and says so rather than being given a number.\n"
         }
     }
     write_era_section(out);
+    let _ = writeln!(
+        out,
+        "\nThe tape modes read **long**, and that is the tape rather than an error: it \
+sits in front of the tank, so every repeat is a fresh excitation and the energy in the \
+room really does last past the tank's own decay. What is measured there is the tail of \
+an echo into a reverb, which is a different quantity from the reverb's decay, and is the \
+point of the machine.\n"
+    );
     let _ = writeln!(
         out,
         "\nThe plate and the spring are looser than the network modes, and their own module \

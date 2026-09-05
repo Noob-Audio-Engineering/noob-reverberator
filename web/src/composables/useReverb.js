@@ -19,9 +19,20 @@ import { logGrid } from '../grid.js';
 
 export { getClient, hasParam, useNoobVstWebguiFramework, useParam, useStream };
 
-/** What the engine told us about itself at connect time. */
+/**
+ * What the engine told us about itself at connect time.
+ *
+ * From the **manifest**, not from `client.meta`: the client only fills that
+ * second field when the plug-in sends a sample-rate change, so reading it at
+ * setup returns an empty object. Nothing looked broken --- the mode list
+ * still rendered, because a labelled parameter carries its own labels and the
+ * segmented control falls back to them --- so the panel was quietly running
+ * on defaults for everything meta was supposed to supply, and the preset list
+ * was empty with no error anywhere.
+ */
 export function meta() {
-  return getClient()?.meta ?? {};
+  const { manifest } = useNoobVstWebguiFramework();
+  return manifest?.value?.meta ?? {};
 }
 
 /** The mode list, from the engine rather than repeated here. */

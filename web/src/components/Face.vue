@@ -24,6 +24,7 @@ import {
 import DecayCurve from './DecayCurve.vue';
 import BandStrip from './BandStrip.vue';
 import Panel from './Panel.vue';
+import Presets from './Presets.vue';
 import { bandCount, meta, modes, seconds } from '../composables/useReverb.js';
 
 const bridge = useNoobVstWebguiFramework();
@@ -65,6 +66,18 @@ const eraAmount = useParam('era_amount');
 const tension = useParam('tension');
 const sections = useParam('sections');
 
+const tapeMix = useParam('tape_mix');
+const tapeTime = useParam('tape_time');
+const tapeHeads = useParam('tape_heads');
+const tapeFeedback = useParam('tape_feedback');
+const tapeWobble = useParam('tape_wobble');
+const tapeDrive = useParam('tape_drive');
+
+const choirAmount = useParam('choir_amount');
+const choirVowel = useParam('choir_vowel');
+const choirSpread = useParam('choir_spread');
+const choirResonance = useParam('choir_resonance');
+
 const list = modes();
 const modeNames = list.map((x) => x.name);
 const current = computed(() => list[Math.round(mode.value ?? 0)] ?? {});
@@ -83,6 +96,7 @@ const bands = Array.from({ length: bandCount() }, (_, i) => i + 1);
       <h1 class="shrink-0 text-sm font-semibold tracking-wide">Noob Reverberator</h1>
       <p class="truncate text-[11px] text-[var(--dim)]">{{ current.blurb }}</p>
       <div class="ml-auto flex shrink-0 items-center gap-3">
+        <Presets />
         <!-- The meter sizes itself to its box, so the box is what sets it. -->
         <div class="h-4 w-32 overflow-hidden rounded border border-[var(--line)]">
           <LevelMeter stream="meter" orientation="horizontal" />
@@ -174,6 +188,30 @@ const bands = Array.from({ length: bandCount() }, (_, i) => i + 1);
           <Knob :p="tension" :size="40" label="Tension" />
           <Knob :p="sections" :size="40" label="Sections" />
         </div>
+      </Panel>
+
+      <Panel title="Tape" hint="in front of the tank">
+        <div class="flex flex-wrap items-end gap-1">
+          <Knob :p="tapeMix" :size="40" label="Amount" />
+          <Knob :p="tapeTime" :size="40" label="Time" />
+          <Knob :p="tapeHeads" :size="40" label="Heads" />
+          <Knob :p="tapeFeedback" :size="40" label="Repeats" />
+          <Knob :p="tapeWobble" :size="40" label="Wobble" />
+          <Knob :p="tapeDrive" :size="40" label="Drive" />
+        </div>
+      </Panel>
+
+      <Panel title="Choir" hint="vowels on the tail">
+        <div class="flex flex-wrap items-end gap-1">
+          <Knob :p="choirAmount" :size="40" label="Amount" />
+          <Knob :p="choirVowel" :size="40" label="Vowel" />
+          <Knob :p="choirSpread" :size="40" label="Size" />
+          <Knob :p="choirResonance" :size="40" label="Resonance" />
+        </div>
+        <p class="mt-2 text-[10px] leading-snug text-[var(--faint)]">
+          A vowel is two or three resonances at fixed frequencies. They do not move with the
+          pitch, which is why a sung note stays the same vowel across an octave.
+        </p>
       </Panel>
 
       <Panel title="Output">

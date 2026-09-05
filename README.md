@@ -127,8 +127,11 @@ measurements, which would improve the number without improving the tank.
 
 **The axes the survey found the modes actually vary on** — attack, decay,
 density, size — are controls rather than presets of a hidden algorithm.
-Eighteen modes are places to stand in that space, and everything a mode sets
-stays movable afterwards.
+Twenty-six modes are places to stand in that space, and everything a mode sets
+stays movable afterwards. Twelve presets go further, each a mode plus the
+handful of controls it moves; they are stored that way rather than as a dump of
+every parameter, because a dump has to be re-issued whenever a parameter is
+added and silently restores a default over something you set.
 
 **Modulation** is two things on one control: a smooth sweep, which detunes the
 tail, and a random walk, which loosens the same ringing without moving the
@@ -136,6 +139,18 @@ pitch. **Era** is a bandwidth, a word length and a rate inside the tank,
 applied to whichever architecture is running. **Shape** is the machines that
 are not spaces at all — gate, reverse, ramp, swoosh, swell. **Shift** puts a
 transposed copy back into the feedback, which is what a shimmer is.
+
+**Tape** is a multi-head echo *in front of* the tank, which is what makes it a
+Magneto rather than an echo after a reverb: its repeats are what the room
+hears, so each one gets its own tail. The heads sit at unequal fractions of one
+circulating delay, wow and flutter move the read rather than the write, and
+every pass goes through saturation and a bandwidth limit, so a repeat gets
+darker as it goes rather than only quieter.
+
+**Choir** puts a vowel's formants on the tail. A vowel is two or three
+resonances at *fixed* frequencies — they do not move with the pitch, which is
+why a sung note stays the same vowel across an octave — so it is a bank of
+fixed filters on the late energy rather than anything tracking the input.
 
 ## What this does not claim
 
