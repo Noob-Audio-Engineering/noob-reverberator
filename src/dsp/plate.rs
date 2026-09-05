@@ -195,6 +195,7 @@ impl Plate {
         }
 
         let mut out = [0.0f32; 2];
+        #[allow(clippy::needless_range_loop)] // `i` also indexes the far half
         for i in 0..2 {
             // Each half is fed by the *other* half's last output: that
             // crossing is the figure of eight.
