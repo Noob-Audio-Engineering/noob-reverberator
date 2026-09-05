@@ -8,11 +8,13 @@
 pub mod decay;
 pub mod delay;
 pub mod diffuse;
+pub mod early;
 pub mod fdn;
 pub mod filters;
 pub mod loss;
 pub mod measure;
 pub mod modulate;
+pub mod pitch;
 pub mod plate;
 pub mod svf;
 

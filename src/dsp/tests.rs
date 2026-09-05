@@ -363,3 +363,79 @@ fn no_architecture_runs_away_at_the_longest_decay() {
     }
     assert!(peak < 1e3, "the plate grew to {peak}");
 }
+
+/// The shifter has to shift, and by how much the window costs it.
+///
+/// Measured by counting zero crossings rather than by taking an FFT peak: the
+/// crossfade puts sidebands a few hertz from the fundamental, close enough
+/// that a peak can land on one and read tens of cents out.
+///
+/// The window is a real trade and this is where its size is recorded, not
+/// guessed. A tap crosses a short window often, so its warble is fast and
+/// strong and the pitch it delivers is off; a long window is accurate and
+/// smears the signal in time. Measured, transposing an octave:
+///
+/// | window | error |
+/// |---|---|
+/// | 1,024 | 90 cents |
+/// | 4,096 | 27 cents |
+/// | 16,384 | 7 cents |
+///
+/// Inside a reverb loop the smearing does not matter --- the diffusers have
+/// already smeared everything --- so the long window is the one the shimmer
+/// modes use, and this asserts the accuracy there.
+#[test]
+fn the_shifter_transposes_by_what_it_was_asked_for() {
+    use super::pitch::Shifter;
+    use std::f32::consts::TAU;
+
+    const FS: f32 = 48_000.0;
+    const F0: f32 = 440.0;
+    const N: usize = 1 << 17;
+
+    let measure = |semis: f32, win: f32| -> f32 {
+        let mut sh = Shifter::new(32_768);
+        sh.set_window(win);
+        sh.set_semitones(semis);
+        let mut crossings = 0usize;
+        let mut prev = 0.0f32;
+        let mut counted = 0usize;
+        for i in 0..N * 2 {
+            let x = (TAU * F0 * i as f32 / FS).sin();
+            let y = sh.process(x);
+            if i >= N {
+                if prev <= 0.0 && y > 0.0 {
+                    crossings += 1;
+                }
+                counted += 1;
+                prev = y;
+            }
+        }
+        let got = crossings as f32 * FS / counted as f32;
+        1200.0 * (got / (F0 * 2f32.powf(semis / 12.0))).log2()
+    };
+
+    for &win in &[1_024.0f32, 4_096.0, 16_384.0] {
+        println!(
+            "  window {win:>6.0}: -12 st {:>+6.1} cents, +12 st {:>+6.1} cents",
+            measure(-12.0, win),
+            measure(12.0, win)
+        );
+    }
+
+    for &semis in &[-24.0f32, -12.0, -5.0, 7.0, 12.0, 24.0] {
+        let cents = measure(semis, 16_384.0);
+        println!("  {semis:>+5.0} st at the long window: {cents:>+6.1} cents");
+        // A quarter of a semitone at the long window. The two-octave
+        // intervals are the worst of it --- the tap has further to travel per
+        // sample, so it crosses the window more often --- and 21 cents on a
+        // voice two octaves down, inside a reverb tail that is already
+        // detuned by its own modulation, is not a pitch anybody is checking
+        // against a tuner. What it must not be is an interval other than the
+        // one asked for, which is what the sign error gave.
+        assert!(
+            cents.abs() < 25.0,
+            "{semis} semitones came out {cents:.1} cents away"
+        );
+    }
+}
