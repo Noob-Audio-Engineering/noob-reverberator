@@ -28,16 +28,14 @@
 //! time. Fitting one filter and sharing it is the mistake that makes a
 //! network's real decay drift away from its nominal one as the lines spread.
 
-/// A band of the decay curve. The shapes are the ones a decay curve needs:
-/// two shelves for the ends, bells for the middle, and a notch for taking one
-/// narrow region out of the tail without touching its neighbours.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Shape {
-    LowShelf,
-    Bell,
-    HighShelf,
-    Notch,
-}
+/// The shapes a decay band can take, and the maths behind them, come from
+/// [`noob_band_shapes`] --- the same crate Noob-Q's filters are described by.
+///
+/// They are the same vocabulary because they are the same question asked
+/// twice: what does a band of this kind, at this frequency, of this width,
+/// look like across the spectrum? What differs is what the answer is used
+/// for, and that difference stays here rather than in the crate.
+pub use noob_band_shapes::{KIND_NAMES as SHAPE_NAMES, Kind as Shape, SHELF_Q};
 
 /// One band: it multiplies the decay time over a region of the spectrum.
 ///
@@ -184,15 +182,20 @@ pub const MIN_T60: f32 = 0.05;
 pub const MAX_T60: f32 = 60.0;
 
 impl Band {
-    /// The Q this band's shape is drawn with --- and the Q the filter that
-    /// realises it is built with. One number, used in both places, because
-    /// the two being allowed to differ is what made the first version of this
-    /// curve undrawable.
+    /// The Q this band is drawn with --- and the Q the filter that realises it
+    /// is built with. One number, used in both places, because the two being
+    /// allowed to differ is what made the first version of this curve
+    /// undrawable.
+    ///
+    /// Width is in octaves here and the crate speaks Q, so the conversion
+    /// happens once, at the boundary.
     pub fn q(&self) -> f32 {
         match self.shape {
-            Shape::Bell => 1.0 / (2.0 * self.width.max(0.05).sinh().max(1e-3)),
-            Shape::Notch => 2.5 / (2.0 * self.width.max(0.05).sinh().max(1e-3)),
-            Shape::LowShelf | Shape::HighShelf => SHELF_Q,
+            Shape::Bell => noob_band_shapes::q_from_octaves(self.width),
+            // A notch is narrower than a bell of the same stated width: it is
+            // there to take one ring out of a tail, not to shape a region.
+            Shape::Notch => noob_band_shapes::q_from_octaves(self.width) * 2.5,
+            Shape::LowShelf | Shape::HighShelf | Shape::Tilt => SHELF_Q,
         }
     }
 
@@ -207,39 +210,14 @@ impl Band {
         }
     }
 
-    /// The band's normalised shape at `f`: 1 at its centre, 0 far from it.
+    /// The band's shape at `f`, with the amount divided out.
     ///
-    /// These are the analogue prototypes of the Audio EQ Cookbook filters in
-    /// the limit of a small gain, where the shape stops depending on the gain.
-    /// They carry no sample rate, which is why the drawn curve does not move
-    /// when the session's rate does; the digital filter's warping near Nyquist
-    /// is left for the fit to absorb, and for the benchmark to report.
+    /// Straight from [`noob_band_shapes::prototype`]: this is the same shape
+    /// an equaliser's filter of the same kind would have, in the limit where
+    /// the gain stops changing it. That limit is exactly what a reverb needs,
+    /// because one drawn curve becomes a different filter on every delay line
+    /// and those filters have different gains.
     pub fn shape_at(&self, f: f32) -> f32 {
-        let q = self.q().max(0.05);
-        match self.shape {
-            // A peaking filter's normalised response is a Lorentzian in the
-            // bandpass variable `1/x − x`.
-            Shape::Bell | Shape::Notch => {
-                let x = (f / self.freq).max(1e-9);
-                let u = 1.0 / x - x;
-                1.0 / (1.0 + (q * u) * (q * u))
-            }
-            Shape::LowShelf => shelf_shape(f / self.freq, q),
-            // The high shelf is the low shelf read backwards.
-            Shape::HighShelf => shelf_shape(self.freq / f.max(1e-9), q),
-        }
+        noob_band_shapes::prototype(self.shape, f, self.freq, self.q())
     }
-}
-
-/// The Q both shelves are drawn and built with. 0.7 is the usual choice: the
-/// steepest a single biquad shelf goes without overshooting past its corner.
-pub const SHELF_Q: f32 = 0.7;
-
-/// A low shelf's normalised shape: 1 well below the corner, a half at it, 0
-/// well above.
-fn shelf_shape(x: f32, q: f32) -> f32 {
-    let x = x.max(1e-9);
-    let x2 = x * x;
-    let d = (1.0 - x2) * (1.0 - x2) + x2 / (q * q);
-    (0.5 * (1.0 + (1.0 - x2 * x2) / d.max(1e-12))).clamp(0.0, 1.0)
 }

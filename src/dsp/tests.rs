@@ -580,3 +580,68 @@ fn every_preset_names_a_mode_and_parameters_that_exist() {
         PRESETS.len()
     );
 }
+
+/// A tilt has to tilt: longer at the bottom, shorter at the top, from one
+/// control.
+///
+/// It is the first shape here that needs **two** filters on every delay line,
+/// and the first whose amount is a difference between two ends rather than a
+/// value at a centre. Both are easy to get half right in a way that still
+/// produces a reverb, so this measures the tail rather than the intent.
+#[test]
+fn a_tilt_lengthens_one_end_and_shortens_the_other() {
+    use super::fdn::{Fdn, prime_lengths};
+    use super::measure::t60_in_band;
+
+    const FS: f32 = 48_000.0;
+    let mut curve = Curve {
+        base: 2.0,
+        ..Default::default()
+    };
+    curve.bands[0] = Band {
+        on: true,
+        shape: Shape::Tilt,
+        freq: 800.0,
+        // Four to one between the ends, which the reciprocal law turns into
+        // an asymmetric pair in seconds --- longer below, shorter above.
+        mult: 4.0,
+        width: 1.0,
+    };
+
+    // What the curve itself claims, before any filter is involved.
+    let lo = curve.t60(80.0);
+    let hi = curve.t60(8_000.0);
+    println!("  drawn: {lo:.3} s at 80 Hz, {hi:.3} s at 8 kHz");
+    assert!(lo > curve.base, "the bottom should be longer than the base");
+    assert!(hi < curve.base, "the top should be shorter than the base");
+
+    let mut fdn = Fdn::new(8, 8192, FS);
+    let mut lens = Vec::new();
+    prime_lengths(8, 900.0, 2_400.0, &mut lens);
+    fdn.set_lengths(&lens, &curve);
+
+    let n = (FS * 8.0) as usize;
+    let mut ir = vec![0.0f32; n];
+    let mut inject = vec![0.0f32; 8];
+    let mut out = vec![0.0f32; 8];
+    for (i, s) in ir.iter_mut().enumerate() {
+        let x = if i == 0 { 1.0 } else { 0.0 };
+        for (k, v) in inject.iter_mut().enumerate() {
+            *v = if k % 2 == 0 { x } else { -x };
+        }
+        fdn.process(&inject, &mut out);
+        *s = out.iter().sum::<f32>() * 0.25;
+    }
+
+    let mut worst = 0.0f32;
+    for &f in &[125.0f32, 500.0, 2_000.0, 8_000.0] {
+        let Some(got) = t60_in_band(&ir, FS, f) else {
+            panic!("{f} Hz did not decay far enough to be measured");
+        };
+        let want = curve.t60_over_octave(f);
+        let err = (got / want).log2().abs();
+        println!("  tilt {f:>5.0} Hz  asked {want:>6.3} s  measured {got:>6.3} s  ({err:.3} oct)");
+        worst = worst.max(err);
+    }
+    assert!(worst < 0.25, "worst {worst:.3} octaves");
+}

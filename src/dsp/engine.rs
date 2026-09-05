@@ -181,12 +181,9 @@ pub fn read_settings(audio: &AudioHandle, ix: &ParamIx) -> Settings {
     for (i, b) in ix.bands.iter().enumerate() {
         curve.bands[i] = Band {
             on: p(b[0]) >= 0.5,
-            shape: match p(b[1]).round() as usize {
-                1 => Shape::LowShelf,
-                2 => Shape::HighShelf,
-                3 => Shape::Notch,
-                _ => Shape::Bell,
-            },
+            // The crate owns the order, so a shape added there reaches the
+            // engine without this having to be edited to agree with it.
+            shape: Shape::from_index(p(b[1]).round().max(0.0) as usize),
             freq: p(b[2]),
             mult: p(b[3]),
             width: p(b[4]),

@@ -15,8 +15,9 @@ use super::formant::VOWEL_NAMES;
 use super::mode;
 use super::shape::SHAPE_NAMES;
 
-/// The shapes a decay band can have, in index order.
-pub const BAND_SHAPE_NAMES: [&str; 4] = ["Bell", "Low Shelf", "High Shelf", "Notch"];
+/// The shapes a decay band can have, in index order --- from the shared
+/// crate, so the panel, the host and Noob-Q all name them the same way.
+pub use super::decay::SHAPE_NAMES as BAND_SHAPE_NAMES;
 
 /// Every parameter, in order.
 pub fn param_specs() -> Vec<ParamSpec> {

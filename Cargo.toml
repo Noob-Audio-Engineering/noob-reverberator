@@ -46,6 +46,7 @@ plugin = ["dep:nih_plug", "dep:noob-vst-webgui-framework-nih", "dep:include_dir"
 
 [dependencies]
 noob-vst-webgui-framework = { git = "https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework" }
+noob-band-shapes = { git = "https://github.com/Noob-Audio-Engineering/noob-band-shapes" }
 noob-vst-webgui-framework-nih = { git = "https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework", optional = true }
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", optional = true }
 include_dir = { version = "0.7", optional = true }

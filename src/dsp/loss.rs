@@ -58,7 +58,13 @@ use super::svf::{Kind, Svf};
 pub struct Loss {
     /// The flat part, as a linear gain.
     gain: f32,
-    bands: [Svf; MAX_BANDS],
+    /// Two slots per drawn band. Most shapes use one; a **tilt** is two
+    /// shelves back to back and uses both, because there is no single biquad
+    /// that lifts one end and drops the other. The second slot of a band that
+    /// does not need it passes everything through.
+    bands: [Svf; MAX_BANDS * 2],
+    /// Which drawn bands are tilts, so `process` knows to run the second slot.
+    tilt: [bool; MAX_BANDS],
     active: usize,
 }
 
@@ -66,7 +72,8 @@ impl Default for Loss {
     fn default() -> Self {
         Loss {
             gain: 0.0,
-            bands: [Svf::default(); MAX_BANDS],
+            bands: [Svf::default(); MAX_BANDS * 2],
+            tilt: [false; MAX_BANDS],
             active: 0,
         }
     }
@@ -224,10 +231,14 @@ impl Loss {
         self.gain = 10f32.powf(th[2 * n].clamp(-120.0, 0.0) / 20.0);
         for j in 0..n {
             let b = &curve.bands[used[j]];
-            shape(&mut self.bands[j], fs, b, th[j], th[n + j]);
+            let (first, second) = self.bands.split_at_mut(MAX_BANDS);
+            shape(&mut first[j], &mut second[j], fs, b, th[j], th[n + j]);
+            self.tilt[j] = b.shape == Shape::Tilt;
         }
-        for f in &mut self.bands[n..] {
-            f.unity();
+        for j in n..MAX_BANDS {
+            self.bands[j].unity();
+            self.bands[MAX_BANDS + j].unity();
+            self.tilt[j] = false;
         }
         self.active = n;
     }
@@ -235,8 +246,11 @@ impl Loss {
     #[inline]
     pub fn process(&mut self, x: f32) -> f32 {
         let mut y = x * self.gain;
-        for f in &mut self.bands[..self.active] {
-            y = f.process(y);
+        for j in 0..self.active {
+            y = self.bands[j].process(y);
+            if self.tilt[j] {
+                y = self.bands[MAX_BANDS + j].process(y);
+            }
         }
         y
     }
@@ -257,8 +271,11 @@ impl Loss {
         // computed there: this number is divided into 60 to get a decay time,
         // so its low-order bits are the answer's high-order ones.
         let mut m = self.gain as f64;
-        for b in &self.bands[..self.active] {
-            m *= b.magnitude(fs, f) as f64;
+        for j in 0..self.active {
+            m *= self.bands[j].magnitude(fs, f) as f64;
+            if self.tilt[j] {
+                m *= self.bands[MAX_BANDS + j].magnitude(fs, f) as f64;
+            }
         }
         (20.0 * m.max(1e-300).log10()) as f32
     }
@@ -292,16 +309,41 @@ const PASSES: usize = 12;
 /// decay figure in this repository refers to.
 pub const FIT_BOTTOM: f32 = 20.0;
 pub const FIT_TOP: f32 = 20_000.0;
-/// Design one band's filter at a given gain, with the fit's Q adjustment in
+/// Design one band's filters at a given gain, with the fit's Q adjustment in
 /// octaves either side of the Q the curve is drawn with.
-fn shape(f: &mut Svf, fs: f32, b: &super::decay::Band, gain_db: f32, log_q: f32) {
+///
+/// `second` is only used by a tilt, which is two shelves: half the amount up
+/// below the corner and half down above it, so the *difference* between the
+/// ends is the amount --- which is what the control's number means, here and
+/// in Noob-Q. There is no single biquad that lifts one end and drops the
+/// other, so a tilt genuinely costs two filters per delay line.
+fn shape(
+    first: &mut Svf,
+    second: &mut Svf,
+    fs: f32,
+    b: &super::decay::Band,
+    gain_db: f32,
+    log_q: f32,
+) {
     let q = b.q() * 2f32.powf(log_q);
-    let kind = match b.shape {
-        Shape::Bell | Shape::Notch => Kind::Bell,
-        Shape::LowShelf => Kind::LowShelf,
-        Shape::HighShelf => Kind::HighShelf,
-    };
-    f.set(kind, fs, b.freq, q, gain_db);
+    match b.shape {
+        Shape::Bell | Shape::Notch => {
+            first.set(Kind::Bell, fs, b.freq, q, gain_db);
+            second.unity();
+        }
+        Shape::LowShelf => {
+            first.set(Kind::LowShelf, fs, b.freq, q, gain_db);
+            second.unity();
+        }
+        Shape::HighShelf => {
+            first.set(Kind::HighShelf, fs, b.freq, q, gain_db);
+            second.unity();
+        }
+        Shape::Tilt => {
+            first.set(Kind::LowShelf, fs, b.freq, q, gain_db * 0.5);
+            second.set(Kind::HighShelf, fs, b.freq, q, gain_db * -0.5);
+        }
+    }
 }
 
 /// Least squares for a very small system, by normal equations and Gaussian
