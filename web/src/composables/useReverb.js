@@ -15,6 +15,7 @@ import {
   useParam,
   useStream,
 } from '@noob-audio-engineering/noob-vst-webgui-framework/vue';
+import { logGrid } from '../grid.js';
 
 export { getClient, hasParam, useNoobVstWebguiFramework, useParam, useStream };
 
@@ -35,9 +36,7 @@ export function bandCount() {
 /** The frequency of curve point `i`, on the same log grid the engine used. */
 export function curveFreq(i, n) {
   const m = meta();
-  const lo = m.fit_bottom ?? 20;
-  const hi = m.fit_top ?? 20000;
-  return lo * Math.pow(hi / lo, i / Math.max(1, n - 1));
+  return logGrid(i, n, m.fit_bottom ?? 20, m.fit_top ?? 20000);
 }
 
 /** One decay band's five parameters, as one object. */
