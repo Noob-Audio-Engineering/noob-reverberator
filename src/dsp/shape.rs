@@ -104,7 +104,11 @@ impl Shaper {
             return 1.0;
         }
         let a = x.abs();
-        let k = if a > self.env { self.attack } else { self.release };
+        let k = if a > self.env {
+            self.attack
+        } else {
+            self.release
+        };
         self.env = a + (self.env - a) * k;
 
         // An onset: the follower has risen sharply from a low level. Both
@@ -113,7 +117,10 @@ impl Shaper {
         if self.env > self.prev * 1.6 && self.env > 1e-3 {
             self.t = 0.0;
         }
-        self.prev = self.prev.max(self.env * 0.999).min(self.env.max(self.prev * 0.999));
+        self.prev = self
+            .prev
+            .max(self.env * 0.999)
+            .min(self.env.max(self.prev * 0.999));
 
         let p = (self.t / self.hold).min(1.0);
         self.t += 1.0;

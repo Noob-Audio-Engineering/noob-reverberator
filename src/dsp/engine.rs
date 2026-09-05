@@ -329,7 +329,9 @@ impl Reverb {
                 self.net.set_lengths(&self.lens[..n], &s.curve);
             }
             Arch::Plate => self.plate.set(size, s.density, &s.curve),
-            Arch::Spring => self.spring.set(s.tension, s.sections, 30.0 * size, &s.curve),
+            Arch::Spring => self
+                .spring
+                .set(s.tension, s.sections, 30.0 * size, &s.curve),
             Arch::Early => {}
         }
 
@@ -388,7 +390,10 @@ impl Reverb {
             // everything after it is the room.
             self.pre[0].push(dry_l);
             self.pre[1].push(dry_r);
-            let (pl, pr) = (self.pre[0].read(self.pre_len), self.pre[1].read(self.pre_len));
+            let (pl, pr) = (
+                self.pre[0].read(self.pre_len),
+                self.pre[1].read(self.pre_len),
+            );
 
             let (el, er) = self.early.process(0.5 * (pl + pr));
 
@@ -409,7 +414,8 @@ impl Reverb {
                         let off = self.mods[k].next(d, s.mod_random);
                         self.net.modulate(k, off);
                     }
-                    self.net.process(&self.inject[..lines], &mut self.taps[..lines]);
+                    self.net
+                        .process(&self.inject[..lines], &mut self.taps[..lines]);
                     let mut a = 0.0;
                     let mut b = 0.0;
                     for (k, &v) in self.taps[..lines].iter().enumerate() {
