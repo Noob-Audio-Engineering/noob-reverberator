@@ -257,3 +257,109 @@ fn the_tail_decays_at_the_rate_the_curve_asks_for() {
         "worst {worst:.4} octaves of decay time, at {worst_at:.0} Hz"
     );
 }
+
+/// The plate is a different topology, so it gets the same measurement rather
+/// than the network's result by association.
+#[test]
+fn the_plate_decays_at_the_rate_the_curve_asks_for() {
+    use super::measure::t60_in_band;
+    use super::plate::Plate;
+
+    const FS: f32 = 48_000.0;
+    let mut curve = Curve {
+        base: 2.5,
+        ..Default::default()
+    };
+    curve.bands[0] = Band {
+        on: true,
+        shape: Shape::HighShelf,
+        freq: 4_000.0,
+        mult: 0.4,
+        width: 1.0,
+    };
+
+    let mut plate = Plate::new(FS);
+    plate.set(1.0, 0.7, &curve);
+
+    let n = (FS * 7.0) as usize;
+    let mut ir = vec![0.0f32; n];
+    for (i, s) in ir.iter_mut().enumerate() {
+        let (l, r) = plate.process(if i == 0 { 1.0 } else { 0.0 });
+        *s = 0.5 * (l + r);
+    }
+
+    let mut worst = 0.0f32;
+    let mut worst_at = 0.0f32;
+    for &f in &[250.0f32, 1_000.0, 4_000.0, 8_000.0] {
+        let Some(got) = t60_in_band(&ir, FS, f) else {
+            panic!("{f} Hz band did not decay far enough to be measured");
+        };
+        let want = curve.t60_over_octave(f);
+        let err = (got / want).log2().abs();
+        println!("  plate {f:>6.0} Hz  asked {want:>6.3} s  measured {got:>6.3} s  ({err:.4} oct)");
+        if err > worst {
+            worst = err;
+            worst_at = f;
+        }
+    }
+    // Looser than the network's, and the plate's own module says why: its
+    // loop runs through allpasses whose delay depends on frequency, and the
+    // loss is fitted to a single number for the lap. Worst measured is 0.20.
+    assert!(
+        worst < 0.25,
+        "worst {worst:.4} octaves of decay time, at {worst_at:.0} Hz"
+    );
+}
+
+/// Nothing may run away. Every architecture is a feedback loop, and the whole
+/// reason the loss is clamped and the allpass gains are held below one is that
+/// a reverb which grows is not a reverb --- it is a fault that arrives after
+/// the listener has stopped watching the meter.
+#[test]
+fn no_architecture_runs_away_at_the_longest_decay() {
+    use super::fdn::{Fdn, prime_lengths};
+    use super::plate::Plate;
+
+    const FS: f32 = 48_000.0;
+    // The longest decay the curve allows, bent as hard as the bands go in the
+    // direction that lengthens it.
+    let mut curve = Curve {
+        base: super::decay::MAX_T60,
+        ..Default::default()
+    };
+    for b in curve.bands.iter_mut() {
+        *b = Band {
+            on: true,
+            shape: Shape::Bell,
+            freq: 1_000.0,
+            mult: 8.0,
+            width: 2.0,
+        };
+    }
+
+    let mut fdn = Fdn::new(16, 8192, FS);
+    let mut lens = Vec::new();
+    prime_lengths(16, 500.0, 3_000.0, &mut lens);
+    fdn.set_lengths(&lens, &curve);
+    let mut inject = vec![0.0f32; 16];
+    let mut out = vec![0.0f32; 16];
+    let mut peak = 0.0f32;
+    for i in 0..(FS as usize * 20) {
+        let x = if i < 64 { 1.0 } else { 0.0 };
+        inject.iter_mut().for_each(|v| *v = x);
+        fdn.process(&inject, &mut out);
+        peak = peak.max(out.iter().fold(0.0f32, |a, b| a.max(b.abs())));
+        assert!(peak.is_finite(), "the network stopped being a number");
+    }
+    assert!(peak < 1e3, "the network grew to {peak}");
+
+    let mut plate = Plate::new(FS);
+    plate.set(2.0, 1.0, &curve);
+    let mut peak = 0.0f32;
+    for i in 0..(FS as usize * 20) {
+        let (l, r) = plate.process(if i < 64 { 1.0 } else { 0.0 });
+        peak = peak.max(l.abs()).max(r.abs());
+        assert!(peak.is_finite(), "the plate stopped being a number");
+    }
+    assert!(peak < 1e3, "the plate grew to {peak}");
+}

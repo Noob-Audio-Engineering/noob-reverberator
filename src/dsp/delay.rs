@@ -150,4 +150,9 @@ impl Allpass {
     pub fn len(&self) -> f32 {
         self.len
     }
+
+    /// How long a delay this stage can hold.
+    pub fn capacity(&self) -> usize {
+        self.line.capacity()
+    }
 }
