@@ -3012,3 +3012,114 @@ fn every_mode_is_a_different_sound() {
         worst.0
     );
 }
+
+/// **Every mode has to deliver the tone it declares, across the whole band.**
+///
+/// The decay curve is what separates one mode from another --- before the
+/// modes carried one, the tilt across the entire table spanned a quarter of an
+/// octave and thirty-two names were tonally one reverb. So the curves are the
+/// perceptually central thing here, and until now only one frequency of them
+/// was held by a test: `every_mode_decays_at_the_length_it_claims` reads
+/// 1 kHz. A mode could ask for a steep shelf, fail to get it at 4 kHz, and
+/// pass --- and only `docs/BENCHMARK.md`, which is a document rather than an
+/// assertion, would show it.
+///
+/// This holds every mode to its own curve at five frequencies from 125 Hz to
+/// 8 kHz, and then checks the *direction* as well as the magnitude: a mode
+/// that declares a shelf below one must measurably ring shorter at the top
+/// than at the bottom, and one above it longer. A fit that quietly flattened
+/// every curve would satisfy the first half and fail the second.
+///
+/// The colouring is stripped for the measurement, exactly as the benchmark's
+/// `curve only` column is, because a tape's repeats and an era's raised noise
+/// floor change what the measurement can see rather than what the tank does.
+#[test]
+fn every_mode_realises_the_tone_it_declares() {
+    use super::engine::Reverb;
+    use super::mode::{Arch, MODES};
+
+    const FS: f32 = 48_000.0;
+    const AT: [f32; 5] = [125.0, 500.0, 1_000.0, 4_000.0, 8_000.0];
+
+    let mut worst = (0.0f32, String::new());
+    let mut shaped = 0;
+    for (i, m) in MODES.iter().enumerate() {
+        // Taps have no tail, so there is no decay to shape or to read.
+        if m.arch == Arch::Early {
+            continue;
+        }
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        s.mode = i;
+        s.mix = 1.0;
+        // What colours the measurement rather than the tank.
+        s.era_amount = 0.0;
+        s.tape_mix = 0.0;
+        s.choir_amount = 0.0;
+        s.shift_mix = 0.0;
+        s.thickness = 0.0;
+        s.shape = super::shape::Kind::Off;
+        s.bloom = 0.0;
+        s.attack_ms = 0.0;
+        s.mod_depth = 0.0;
+        s.early_level = 0.0;
+
+        let longest = AT.iter().fold(0.0f32, |a, f| a.max(s.curve.t60(*f)));
+        let ir = render_engine(&s, (longest * 2.5).clamp(2.0, 20.0));
+
+        let mut got = [0.0f32; 5];
+        for (k, f) in AT.iter().enumerate() {
+            let want = s.curve.t60_over_octave(*f);
+            let Some(have) = super::measure::t60_in_band(&ir, FS, *f) else {
+                panic!("{} gave nothing measurable at {f} Hz", m.name);
+            };
+            got[k] = have;
+            let out = (have / want).log2().abs();
+            if out > worst.0 {
+                worst = (out, format!("{} at {f:.0} Hz", m.name));
+            }
+            // The plate is the loose architecture and `docs/BENCHMARK.md` says
+            // why; it gets the room its own limit needs and no more.
+            let bound = if m.arch == Arch::Plate { 0.5 } else { 0.35 };
+            assert!(
+                out < bound,
+                "{} asks for {want:.2} s at {f:.0} Hz and gives {have:.2} s \
+                 ({out:.2} octaves out)",
+                m.name
+            );
+        }
+
+        // And the direction, which is the half a flattened fit would pass.
+        //
+        // Held against the curve's *own* tilt between the same two
+        // frequencies rather than against a figure I picked. The first
+        // version of this asserted "declares a darker top, measures darker
+        // between 125 Hz and 4 kHz" and failed on Ambience --- whose shelf
+        // corners at 4 kHz, so at 4 kHz it has barely begun. Reading a shelf
+        // at its own corner and calling it absent is the check agreeing with
+        // something other than what it claims to measure.
+        let want_tilt = (s.curve.t60_over_octave(AT[0]) / s.curve.t60_over_octave(AT[4])).log2();
+        let got_tilt = (got[0] / got[4]).log2();
+        // Only where the mode asks for a tilt big enough to be unambiguous.
+        if want_tilt.abs() > 0.3 {
+            shaped += 1;
+            assert!(
+                (got_tilt - want_tilt).abs() < 0.45,
+                "{} draws {want_tilt:.2} octaves of tilt between {:.0} Hz and {:.0} Hz                  and delivers {got_tilt:.2}",
+                m.name,
+                AT[0],
+                AT[4]
+            );
+            assert!(
+                got_tilt.signum() == want_tilt.signum(),
+                "{} draws a tilt of {want_tilt:.2} octaves and delivers {got_tilt:.2},                  which leans the other way",
+                m.name
+            );
+        }
+    }
+    println!(
+        "  every mode realises its curve at five frequencies, worst {:.2} octaves ({}); \
+         {shaped} of them declare a shelf steep enough to check the direction of, and do",
+        worst.0, worst.1
+    );
+}
