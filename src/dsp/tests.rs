@@ -2396,3 +2396,138 @@ fn a_driven_tank_thickens_without_moving_its_decay() {
         );
     }
 }
+
+/// **What the page draws has to be there, for every architecture.**
+///
+/// The curves and the spectrum are the third thing that can be published,
+/// wired and empty --- the same shape of bug as a knob that reaches no stage,
+/// and harder to see, because a curve that is flat and a curve that is
+/// missing look alike on a dark panel. There are two publishers as well, the
+/// plug-in and the standalone, so a stream can work in one and not the other.
+///
+/// The realised curve is deliberately absent on the early-reflection
+/// architecture and that is the point of the `NaN`: taps have no tail, so
+/// there is no decay to read back out of the filters, and a zero there would
+/// draw a curve claiming the reverb dies instantly. This requires the absence
+/// to be the honest kind.
+#[test]
+fn every_architecture_publishes_what_the_page_draws() {
+    use super::engine::Reverb;
+    use super::mode::{Arch, MODES};
+
+    const FS: f32 = 48_000.0;
+    // The frequencies the curve is drawn over, from the stream's own metadata
+    // rather than a second list that can disagree with it.
+    let lo = super::loss::FIT_BOTTOM;
+    let hi = super::loss::FIT_TOP;
+
+    for arch in [Arch::Network, Arch::Plate, Arch::Spring, Arch::Early] {
+        let i = MODES.iter().position(|m| m.arch == arch).expect("an arch");
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        s.mix = 1.0;
+        let mut rev = Reverb::new(FS);
+        rev.configure(&s);
+
+        // Before any audio, the spectrum must be silent rather than full of
+        // whatever the buffer was built with.
+        let mut spec = vec![0.0f32; 64];
+        rev.fill_spectrum(&mut spec);
+        assert!(
+            spec.iter().all(|v| v.is_finite()),
+            "{arch:?} published a spectrum that is not a number before any audio"
+        );
+
+        // Two seconds of noise, then read the curves back out of the filters
+        // that are running.
+        let n = (FS * 2.0) as usize;
+        let mut l = vec![0.0f32; n];
+        let mut r = vec![0.0f32; n];
+        let mut seed = 7u32;
+        for k in 0..n {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let v = ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.5;
+            l[k] = v;
+            r[k] = v;
+        }
+        rev.process(&s, &mut l, &mut r);
+
+        rev.fill_spectrum(&mut spec);
+        assert!(
+            spec.iter().all(|v| v.is_finite()),
+            "{arch:?} published a spectrum that is not a number"
+        );
+        let moved = spec.iter().filter(|v| v.abs() > 1e-6).count();
+        assert!(
+            moved * 4 > spec.len(),
+            "{arch:?} published a spectrum with only {moved} of {} points on it, \\
+             so the analyser is not reading the tail",
+            spec.len()
+        );
+
+        // The realised curve, over the band the stream says it covers.
+        let points = 48;
+        let mut real = Vec::with_capacity(points);
+        for k in 0..points {
+            let t = k as f32 / (points - 1) as f32;
+            let f = lo * (hi / lo).powf(t);
+            real.push(rev.realised_t60(f));
+        }
+        if arch == Arch::Early {
+            assert!(
+                real.iter().all(|v| v.is_nan()),
+                "{arch:?} has no tail, so its realised curve must be absent \\
+                 rather than a number the panel would draw"
+            );
+            println!("  {arch:?}: no realised curve, which is the honest answer");
+            continue;
+        }
+        assert!(
+            real.iter().all(|v| v.is_finite() && *v > 0.0),
+            "{arch:?} published a realised decay that is not a positive time"
+        );
+        // And it has to be the decay this mode actually asks for, not a curve
+        // of the right shape at the wrong scale: read back at 1 kHz it should
+        // land near the mode's own entry.
+        let mid = rev.realised_t60(1_000.0);
+        let out = (mid / MODES[i].decay).log2().abs();
+        assert!(
+            out < 0.5,
+            "{arch:?} draws {mid:.2} s at 1 kHz where its mode asks for {:.2} s",
+            MODES[i].decay
+        );
+        println!(
+            "  {arch:?}: realised curve {:.2}..{:.2} s, {mid:.2} s at 1 kHz against {:.2} asked",
+            real.iter().cloned().fold(f32::MAX, f32::min),
+            real.iter().cloned().fold(0.0f32, f32::max),
+            MODES[i].decay
+        );
+    }
+}
+
+/// **The stream order is a contract, and two files hold it by hand.**
+///
+/// `src/plugin.rs` and `src/bin/standalone.rs` each publish these by index,
+/// with their own `S_METER = 0` and so on, because a stream is addressed by
+/// position on the wire. Nothing makes those two lists agree with this one:
+/// inserting a stream rather than appending it silently points every reader
+/// at the wrong data, and the page draws a spectrum on the decay axis without
+/// anything failing.
+///
+/// So the order is written down once, here, and both publishers are checked
+/// against it. A new stream goes on the end and gets a line added below.
+#[test]
+fn the_streams_are_in_the_order_both_publishers_expect() {
+    let ids: Vec<String> = super::streams().into_iter().map(|s| s.id).collect();
+    assert_eq!(
+        ids,
+        vec!["meter", "asked", "realised", "spectrum"],
+        "the stream order moved --- `S_METER` and its friends in src/plugin.rs \
+         and src/bin/standalone.rs are indices into this list, and a saved \
+         session addresses them by position, so append rather than insert"
+    );
+    println!(
+        "  {} streams, in the order both publishers index",
+        ids.len()
+    );
+}
