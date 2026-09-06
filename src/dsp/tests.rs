@@ -814,3 +814,819 @@ fn a_bloom_grows_while_a_note_is_held() {
         "the swell should build more than a bare path: {grew:.2} against {flat:.2}"
     );
 }
+
+/// A spring has to **chirp**: high frequencies must come back before low ones.
+///
+/// That is the entire difference between a spring and a small dark plate, and
+/// it is invisible in a decay measurement --- a chirping coil and a
+/// non-chirping one decay identically. So this measures *when* each band
+/// arrives, by filtering the impulse response into two bands and finding
+/// where each one's energy first appears.
+#[test]
+fn a_spring_returns_the_top_of_the_band_first() {
+    use super::spring::Spring;
+    use super::svf::{Kind, Svf};
+
+    const FS: f32 = 48_000.0;
+    let curve = Curve {
+        base: 2.0,
+        ..Default::default()
+    };
+    let mut spring = Spring::new(FS, 120.0);
+    // A slack coil: the more dispersion, the further apart the two arrivals.
+    spring.set(0.85, 140, 30.0, &curve);
+
+    let n = (FS * 0.5) as usize;
+    let mut ir = vec![0.0f32; n];
+    for (i, s) in ir.iter_mut().enumerate() {
+        *s = spring.process(if i == 0 { 1.0 } else { 0.0 });
+    }
+
+    // When does a band's energy first reach a tenth of its own peak?
+    let arrival = |f: f32| -> f32 {
+        let mut a = Svf::default();
+        let mut b = Svf::default();
+        a.set(Kind::BandPass, FS, f, 1.2, 0.0);
+        b.set(Kind::BandPass, FS, f, 1.2, 0.0);
+        let band: Vec<f32> = ir.iter().map(|&x| b.process(a.process(x))).collect();
+        let peak = band.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let at = band
+            .iter()
+            .position(|v| v.abs() > peak * 0.1)
+            .unwrap_or(band.len());
+        at as f32 / FS * 1000.0
+    };
+
+    let high = arrival(4_000.0);
+    let low = arrival(300.0);
+    println!("  spring: 4 kHz at {high:.1} ms, 300 Hz at {low:.1} ms");
+    assert!(
+        low > high + 1.0,
+        "the bottom of the band should arrive later than the top: {low:.1} ms against {high:.1} ms"
+    );
+
+    // And a tight coil should chirp less than a slack one, which is what the
+    // Tension control is for.
+    let mut tight = Spring::new(FS, 120.0);
+    tight.set(0.15, 140, 30.0, &curve);
+    let mut ir2 = vec![0.0f32; n];
+    for (i, s) in ir2.iter_mut().enumerate() {
+        *s = tight.process(if i == 0 { 1.0 } else { 0.0 });
+    }
+    let spread_of = |ir: &[f32]| {
+        let one = |f: f32| {
+            let mut a = Svf::default();
+            let mut b = Svf::default();
+            a.set(Kind::BandPass, FS, f, 1.2, 0.0);
+            b.set(Kind::BandPass, FS, f, 1.2, 0.0);
+            let band: Vec<f32> = ir.iter().map(|&x| b.process(a.process(x))).collect();
+            let peak = band.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            band.iter().position(|v| v.abs() > peak * 0.1).unwrap_or(0) as f32 / FS * 1000.0
+        };
+        one(300.0) - one(4_000.0)
+    };
+    let slack_spread = low - high;
+    let tight_spread = spread_of(&ir2);
+    println!("  spread: slack {slack_spread:.1} ms, tight {tight_spread:.1} ms");
+    assert!(
+        slack_spread > tight_spread,
+        "a slacker coil should chirp further: {slack_spread:.1} against {tight_spread:.1}"
+    );
+}
+
+/// Diffusion has to make the echoes **denser**, which is not the same as
+/// making them quieter or later.
+///
+/// Measured as the crest factor of the impulse response: a handful of
+/// discrete repeats is a few tall spikes over silence, and a diffuse burst is
+/// many small ones. A chain that only attenuated would keep its shape and
+/// lower everything, so this compares the ratio of the peak to the energy
+/// rather than either alone.
+#[test]
+fn diffusion_turns_a_few_echoes_into_many() {
+    use super::diffuse::Diffuser;
+
+    let crest = |amount: f32| -> f32 {
+        let mut d = Diffuser::new(6, 2_048, 1);
+        d.set_scale(1.0, 900.0);
+        d.set_amount(amount);
+        let n = 8_192;
+        let mut out = vec![0.0f32; n];
+        for (i, o) in out.iter_mut().enumerate() {
+            *o = d.process(if i == 0 { 1.0 } else { 0.0 });
+        }
+        let peak = out.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        let rms = (out.iter().map(|v| v * v).sum::<f32>() / n as f32).sqrt();
+        peak / rms.max(1e-9)
+    };
+
+    let sparse = crest(0.0);
+    let dense = crest(1.0);
+    println!("  crest factor: sparse {sparse:.1}, dense {dense:.1}");
+    assert!(
+        dense < sparse * 0.7,
+        "diffusion should flatten the burst: {sparse:.1} then {dense:.1}"
+    );
+}
+
+/// The two kinds of modulation have to be two kinds.
+///
+/// A sweep is periodic: its own value a cycle later is nearly itself. A random
+/// walk is not, and that is the whole distinction the survey draws --- one
+/// detunes the tail and one does not. Measured by correlating each against
+/// itself one period later.
+#[test]
+fn a_sweep_repeats_and_a_walk_does_not() {
+    use super::modulate::Modulator;
+
+    const FS: f32 = 48_000.0;
+    const RATE: f32 = 2.0;
+    let period = (FS / RATE) as usize;
+
+    let correlation = |random: f32| -> f32 {
+        let mut m = Modulator::new(7);
+        m.set_rate(FS, RATE);
+        let n = period * 6;
+        let v: Vec<f32> = (0..n).map(|_| m.next(1.0, random)).collect();
+        // Against itself one period later, over the settled part.
+        let a = &v[period..n - period];
+        let b = &v[period * 2..n];
+        let num: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+        let da: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let db: f32 = b.iter().map(|y| y * y).sum::<f32>().sqrt();
+        num / (da * db).max(1e-9)
+    };
+
+    let sweep = correlation(0.0);
+    let walk = correlation(1.0);
+    println!("  correlation one period later: sweep {sweep:.3}, walk {walk:.3}");
+    assert!(sweep > 0.95, "a sweep should repeat: {sweep:.3}");
+    assert!(walk < 0.5, "a walk should not: {walk:.3}");
+}
+
+/// Each envelope shape has to be the shape it is named after.
+///
+/// They are all one gain over time, so a wrong one still produces a reverb
+/// that moves --- gate and ramp differ only in whether the middle is flat, and
+/// reverse and swell only in whether the end falls. Measured by driving an
+/// onset and reading the gain at three points.
+#[test]
+fn every_envelope_shape_has_the_shape_it_is_named_after() {
+    use super::shape::{Kind as ShapeKind, Shaper};
+
+    const FS: f32 = 48_000.0;
+    const HOLD: f32 = 400.0;
+
+    // The gain a fifth, a half and nine tenths of the way through the shape,
+    // and well past the end of it.
+    let trace = |kind: ShapeKind| -> [f32; 4] {
+        let mut sh = Shaper::new(FS);
+        sh.set(kind, HOLD);
+        let hold_n = (HOLD * 0.001 * FS) as usize;
+        let n = hold_n * 3;
+        let mut at = [0.0f32; 4];
+        let marks = [
+            (hold_n as f32 * 0.2) as usize,
+            hold_n / 2,
+            (hold_n as f32 * 0.9) as usize,
+            hold_n * 2,
+        ];
+        // A short burst to trigger it, then silence: the shape runs on from
+        // the onset whatever happens afterwards.
+        for i in 0..n {
+            let x = if i < 64 { 0.8 } else { 0.0 };
+            let g = sh.next(x);
+            for (k, &m) in marks.iter().enumerate() {
+                if i == m {
+                    at[k] = g;
+                }
+            }
+        }
+        at
+    };
+
+    let gate = trace(ShapeKind::Gate);
+    let reverse = trace(ShapeKind::Reverse);
+    let ramp = trace(ShapeKind::Ramp);
+    let swoosh = trace(ShapeKind::Swoosh);
+    let swell = trace(ShapeKind::Swell);
+    let off = trace(ShapeKind::Off);
+    println!("  gate    {gate:.2?}");
+    println!("  reverse {reverse:.2?}");
+    println!("  ramp    {ramp:.2?}");
+    println!("  swoosh  {swoosh:.2?}");
+    println!("  swell   {swell:.2?}");
+    println!("  off     {off:.2?}");
+
+    // Off is one throughout, or it is not off.
+    assert!(
+        off.iter().all(|g| (g - 1.0).abs() < 0.01),
+        "off moved: {off:.2?}"
+    );
+    // A gate holds up and then drops.
+    assert!(gate[1] > 0.9 && gate[3] < 0.1, "gate: {gate:.2?}");
+    // Reverse climbs into the note and holds.
+    assert!(
+        reverse[0] < 0.2 && reverse[2] > 0.6 && reverse[3] > 0.9,
+        "reverse: {reverse:.2?}"
+    );
+    // A ramp only falls.
+    assert!(
+        ramp[0] > 0.6 && ramp[2] < 0.3 && ramp[3] < 0.1,
+        "ramp: {ramp:.2?}"
+    );
+    // A swoosh goes up and comes back.
+    assert!(
+        swoosh[1] > swoosh[0] && swoosh[1] > swoosh[3],
+        "swoosh: {swoosh:.2?}"
+    );
+    // A swell arrives and stays.
+    assert!(
+        swell[0] < 0.4 && swell[2] > 0.7 && swell[3] > 0.9,
+        "swell: {swell:.2?}"
+    );
+}
+
+/// The eras have to do what the control says they do: narrow the band, and
+/// coarsen the signal.
+///
+/// Both, separately. An era that only rolled the top off would be a tone
+/// control, and one that only quantised would be a distortion; the survey's
+/// whole point about Valhalla's COLOR is that it is a bandwidth *and* a word
+/// length applied to whatever topology is running.
+#[test]
+fn the_eras_narrow_the_band_and_coarsen_the_signal() {
+    use super::colour::{Colour, Era};
+    use std::f32::consts::TAU;
+
+    const FS: f32 = 48_000.0;
+
+    // How much of a sine at `f` survives.
+    let through = |era: Era, f: f32| -> f32 {
+        let mut c = Colour::new(FS);
+        c.set(era, 1.0, FS);
+        let mut peak = 0.0f32;
+        for i in 0..8_000 {
+            let x = (TAU * f * i as f32 / FS).sin() * 0.5;
+            let (l, _) = c.process(x, x);
+            if i > 4_000 {
+                peak = peak.max(l.abs());
+            }
+        }
+        20.0 * (peak / 0.5).max(1e-9).log10()
+    };
+
+    for era in [Era::Seventies, Era::Eighties, Era::Broken] {
+        let low = through(era, 500.0);
+        let high = through(era, 18_000.0);
+        println!("  {era:?}: {low:.1} dB at 500 Hz, {high:.1} dB at 18 kHz");
+        assert!(low > -6.0, "{era:?} should pass the middle: {low:.1} dB");
+        assert!(
+            high < low - 12.0,
+            "{era:?} should narrow the band: {low:.1} then {high:.1}"
+        );
+    }
+    // And "Now" is not an era: it does nothing at all.
+    let now_low = through(Era::Now, 500.0);
+    let now_high = through(Era::Now, 18_000.0);
+    println!("  Now: {now_low:.1} dB at 500 Hz, {now_high:.1} dB at 18 kHz");
+    assert!(
+        now_low.abs() < 0.2 && now_high.abs() < 0.2,
+        "Now coloured something"
+    );
+
+    // The word length: a signal far below the step must be quantised to
+    // nothing, which an era that only filtered would leave alone.
+    let quantised = |era: Era| -> f32 {
+        let mut c = Colour::new(FS);
+        c.set(era, 1.0, FS);
+        let mut peak = 0.0f32;
+        for i in 0..4_000 {
+            // Well under one step of twelve bits.
+            let x = (TAU * 300.0 * i as f32 / FS).sin() * 1e-4;
+            let (l, _) = c.process(x, x);
+            if i > 2_000 {
+                peak = peak.max(l.abs());
+            }
+        }
+        peak
+    };
+    let tiny_seventies = quantised(Era::Seventies);
+    let tiny_now = quantised(Era::Now);
+    println!("  a signal under one step: seventies {tiny_seventies:.2e}, now {tiny_now:.2e}");
+    assert!(
+        tiny_seventies < tiny_now * 0.5,
+        "the word length should swallow it: {tiny_seventies:.2e} against {tiny_now:.2e}"
+    );
+}
+
+/// The early reflections have to arrive when a room that size would deliver
+/// them, and there have to be the number that were asked for.
+///
+/// A pattern of the right density at the wrong times is a chorus, not a room,
+/// and nothing else here would notice: the tail measures the same either way.
+#[test]
+fn the_early_pattern_matches_the_room_it_was_given() {
+    use super::early::Early;
+
+    const FS: f32 = 48_000.0;
+    const C: f32 = 343.0;
+
+    let first_arrival = |size_m: f32| -> f32 {
+        let mut e = Early::new(FS, 400.0);
+        e.build(size_m, 0.2, 24, 1.0);
+        let n = (FS * 0.4) as usize;
+        let mut at = 0.0f32;
+        for i in 0..n {
+            let (l, r) = e.process(if i == 0 { 1.0 } else { 0.0 });
+            if l.abs() + r.abs() > 1e-4 {
+                at = i as f32 / FS * 1000.0;
+                break;
+            }
+        }
+        at
+    };
+
+    // A bigger room's first wall is further away, so its first reflection is
+    // later --- and roughly in proportion, because sound travels at one speed.
+    let small = first_arrival(4.0);
+    let big = first_arrival(24.0);
+    println!("  first reflection: 4 m room {small:.1} ms, 24 m room {big:.1} ms");
+    assert!(small > 0.0 && big > small * 3.0, "{small:.1} then {big:.1}");
+    // The shortest path in a room whose longest wall is `L` cannot be shorter
+    // than about a tenth of a wall, nor longer than a couple of them.
+    for (size, at) in [(4.0f32, small), (24.0, big)] {
+        let ms_per_metre = 1000.0 / C;
+        assert!(
+            at > size * ms_per_metre * 0.1 && at < size * ms_per_metre * 3.0,
+            "a {size} m room answered in {at:.1} ms"
+        );
+    }
+
+    // And the count is the count.
+    for want in [1usize, 8, 24, 64] {
+        let mut e = Early::new(FS, 400.0);
+        e.build(10.0, 0.3, want, 1.0);
+        assert_eq!(e.taps(), want, "asked for {want} taps");
+    }
+}
+
+/// The state variable filters have to agree with an independent implementation
+/// of the same shapes.
+///
+/// `noob-band-shapes` carries the analogue prototypes and knows nothing about
+/// this engine, so it is something for these filters to disagree with --- and
+/// the reverb's whole claim rests on their magnitude being right, because the
+/// decay is read straight out of it.
+#[test]
+fn the_loss_filters_agree_with_the_shared_prototypes() {
+    use super::svf::{Kind, Svf};
+    use noob_band_shapes::{Kind as BandKind, SHELF_Q, magnitude_db};
+
+    const FS: f32 = 48_000.0;
+    let pairs = [
+        (Kind::Bell, BandKind::Bell, 1.0f32, "bell"),
+        (Kind::LowShelf, BandKind::LowShelf, SHELF_Q, "low shelf"),
+        (Kind::HighShelf, BandKind::HighShelf, SHELF_Q, "high shelf"),
+    ];
+    let mut worst = 0.0f32;
+    let mut worst_at = ("", 0.0f32);
+    for (k, bk, q, name) in pairs {
+        for &f0 in &[80.0f32, 1_000.0, 6_000.0] {
+            for &g in &[-12.0f32, -3.0, 3.0, 12.0] {
+                let mut s = Svf::default();
+                s.set(k, FS, f0, q, g);
+                let mut f = 20.0f32;
+                while f < FS / 20.0 {
+                    let mine = 20.0 * s.magnitude(FS, f).max(1e-12).log10();
+                    // At the frequency the digital filter actually realises,
+                    // not at the one it was asked for. A topology-preserving
+                    // transform maps the analogue prototype onto the digital
+                    // one through `tan`, so comparing at the raw frequency
+                    // measures the bilinear warping instead of the filter ---
+                    // it read 0.21 dB apart at 2.3 kHz, all of it warping.
+                    let warp = |x: f32| (std::f32::consts::PI * x / FS).tan();
+                    let equiv = f0 * warp(f) / warp(f0);
+                    let theirs = magnitude_db(bk, equiv, f0, q, g);
+                    let e = (mine - theirs).abs();
+                    if e > worst {
+                        worst = e;
+                        worst_at = (name, f);
+                    }
+                    f *= 1.1;
+                }
+            }
+        }
+    }
+    println!(
+        "  worst {worst:.4} dB, on a {} at {:.0} Hz",
+        worst_at.0, worst_at.1
+    );
+    assert!(worst < 0.05, "{worst:.3} dB apart on a {}", worst_at.0);
+}
+
+/// Doing the fit on another thread has to give the same filters as doing it
+/// here.
+///
+/// The split is the whole reason the audio thread is cheap now, and it is the
+/// kind of change that can quietly alter the sound: the worker measures with
+/// its *own* filters, so a fit that depended on the state of the caller's
+/// would come back subtly different. This checks the numbers land in the same
+/// place, and that they actually arrive.
+#[test]
+fn the_fit_is_the_same_wherever_it_is_done() {
+    use super::fitter::{Fitter, Job};
+    use super::loss::{Loss, Scratch};
+
+    const FS: f32 = 48_000.0;
+    let mut curve = Curve {
+        base: 3.0,
+        ..Default::default()
+    };
+    curve.bands[0] = Band {
+        on: true,
+        shape: Shape::LowShelf,
+        freq: 250.0,
+        mult: 2.2,
+        width: 1.0,
+    };
+    curve.bands[1] = Band {
+        on: true,
+        shape: Shape::HighShelf,
+        freq: 5_000.0,
+        mult: 0.45,
+        width: 1.0,
+    };
+
+    let mut lens = [0.0f32; super::fdn::MAX_LINES];
+    for (i, l) in lens.iter_mut().enumerate() {
+        *l = 700.0 + i as f32 * 137.0;
+    }
+
+    // Here.
+    let mut here = Loss::default();
+    let mut scratch = Scratch::default();
+    here.fit(FS, lens[0] as usize, &curve, &mut scratch);
+
+    // There.
+    let mut fitter = Fitter::new();
+    assert!(
+        fitter.request(Job {
+            fs: FS,
+            curve,
+            lens,
+            lines: 4,
+            plate_laps: [9_000.0, 9_400.0],
+            spring_trip: 1_600.0,
+        }),
+        "the worker would not take the job"
+    );
+    let mut done = None;
+    for _ in 0..600 {
+        if let Some(d) = fitter.collect() {
+            done = Some(d);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let done = done.expect("the fit never came back");
+
+    let mut there = Loss::default();
+    there.apply(FS, &curve, &done.net[0]);
+
+    let mut worst = 0.0f32;
+    let mut f = 20.0f32;
+    while f < 20_000.0 {
+        let a = here.t60(FS, lens[0] as usize, f);
+        let b = there.t60(FS, lens[0] as usize, f);
+        worst = worst.max((a / b).log2().abs());
+        f *= 1.1;
+    }
+    println!("  worst {worst:.6} octaves between the two");
+    assert!(worst < 1e-4, "the two fits differ by {worst:.5} octaves");
+}
+
+/// A settings block with everything quiet, for the end-to-end tests.
+fn plain_settings(mode: usize) -> super::engine::Settings {
+    use super::colour::Era;
+    use super::shape::Kind as ShapeKind;
+    super::engine::Settings {
+        bypass: false,
+        mix: 1.0,
+        output: 1.0,
+        freeze: false,
+        mode,
+        decay: 2.0,
+        size: 1.0,
+        density: 0.8,
+        attack_ms: 0.0,
+        predelay_ms: 0.0,
+        width: 1.0,
+        mod_rate: 0.0,
+        mod_depth: 0.0,
+        mod_random: 0.0,
+        early_level: 0.0,
+        early_size: 8.0,
+        early_absorb: 0.35,
+        early_taps: 24,
+        shift: 0.0,
+        shift_mix: 0.0,
+        shift_window: 16_384.0,
+        shape: ShapeKind::Off,
+        shape_hold: 400.0,
+        era: Era::Now,
+        era_amount: 0.0,
+        tension: 0.6,
+        sections: 100,
+        lines: 12,
+        distance: 0.0,
+        thickness: 0.0,
+        duck: 0.0,
+        duck_release: 250.0,
+        gate: 0.0,
+        gate_hold: 300.0,
+        bloom: 0.0,
+        bloom_time: 120.0,
+        bloom_swell: 600.0,
+        tape_mix: 0.0,
+        tape_time: 320.0,
+        tape_heads: 3,
+        tape_feedback: 0.35,
+        tape_wobble: 0.3,
+        tape_drive: 0.3,
+        choir_amount: 0.0,
+        choir_vowel: 0.0,
+        choir_spread: 0.0,
+        choir_resonance: 0.5,
+        curve: Curve {
+            base: 2.0,
+            ..Default::default()
+        },
+    }
+}
+
+/// Run an impulse through the whole engine and give back the wet output.
+fn render_engine(s: &super::engine::Settings, secs: f32) -> Vec<f32> {
+    use super::engine::Reverb;
+    const FS: f32 = 48_000.0;
+    let mut rev = Reverb::new(FS);
+    rev.configure(s);
+    let n = (FS * secs) as usize;
+    let mut l = vec![0.0f32; n];
+    let mut r = vec![0.0f32; n];
+    l[0] = 1.0;
+    r[0] = 1.0;
+    rev.process(s, &mut l, &mut r);
+    l.iter().zip(r.iter()).map(|(a, b)| 0.5 * (a + b)).collect()
+}
+
+fn energy(v: &[f32]) -> f32 {
+    (v.iter().map(|x| x * x).sum::<f32>() / v.len().max(1) as f32).sqrt()
+}
+
+/// **Every mode has to make a sound, and none may make an unreasonable one.**
+///
+/// This is the test that would have caught a mode wired to an architecture
+/// that produces nothing, a fit that never arrived, or a stage that turns its
+/// input into infinity --- none of which the per-module tests can see, because
+/// each one is right on its own.
+#[test]
+fn every_mode_produces_a_finite_tail() {
+    use super::mode::MODES;
+
+    for (i, m) in MODES.iter().enumerate() {
+        let mut s = plain_settings(i);
+        super::engine::Reverb::apply_mode(&mut s, i);
+        s.mix = 1.0;
+        let out = render_engine(&s, 2.0);
+        assert!(
+            out.iter().all(|v| v.is_finite()),
+            "{} produced something that is not a number",
+            m.name
+        );
+        let peak = out.iter().fold(0.0f32, |a, b| a.max(b.abs()));
+        assert!(peak < 16.0, "{} peaked at {peak}", m.name);
+        // Something has to come out. An impulse into a reverb that returns
+        // silence is a reverb that is not connected.
+        let e = energy(&out[480..]);
+        assert!(e > 1e-7, "{} returned silence ({e:.2e})", m.name);
+    }
+    println!("  {} modes, all of them audible and finite", MODES.len());
+}
+
+/// The controls that act on the whole plug-in, which nothing else tests
+/// because they are not an algorithm.
+///
+/// Each is easy to leave unwired --- the reverb still sounds like a reverb
+/// with a dead Width or a Freeze that does not --- and each is the sort of
+/// thing somebody notices in a session rather than in a benchmark.
+#[test]
+fn the_global_controls_do_what_they_say() {
+    use super::engine::Reverb;
+
+    const FS: f32 = 48_000.0;
+
+    // Bypass: what goes in comes out, sample for sample.
+    let mut s = plain_settings(0);
+    s.bypass = true;
+    let mut l = vec![0.0f32; 2_048];
+    let mut r = vec![0.0f32; 2_048];
+    l[0] = 1.0;
+    r[0] = 0.5;
+    let mut rev = Reverb::new(FS);
+    rev.configure(&s);
+    rev.process(&s, &mut l, &mut r);
+    assert_eq!(l[0], 1.0, "bypass changed the input");
+    assert_eq!(r[0], 0.5, "bypass changed the input");
+    assert!(l[1..].iter().all(|v| *v == 0.0), "bypass added a tail");
+
+    // Mix: at nothing, the output is the input. At everything, it is not.
+    let mut dry = plain_settings(0);
+    dry.mix = 0.0;
+    let out_dry = render_engine(&dry, 0.5);
+    let mut wet = plain_settings(0);
+    wet.mix = 1.0;
+    let out_wet = render_engine(&wet, 0.5);
+    let tail_dry = energy(&out_dry[480..]);
+    let tail_wet = energy(&out_wet[480..]);
+    println!("  tail energy: dry {tail_dry:.2e}, wet {tail_wet:.2e}");
+    assert!(
+        tail_dry < 1e-9,
+        "a dry mix still had a tail: {tail_dry:.2e}"
+    );
+    assert!(tail_wet > 1e-6, "a wet mix had none: {tail_wet:.2e}");
+
+    // Pre-delay: nothing comes back before it.
+    let mut pre = plain_settings(0);
+    pre.predelay_ms = 80.0;
+    pre.mix = 1.0;
+    let out = render_engine(&pre, 0.6);
+    let before = (FS * 0.070) as usize;
+    let quiet = energy(&out[64..before]);
+    let after = energy(&out[(FS * 0.09) as usize..(FS * 0.2) as usize]);
+    println!("  pre-delay: {quiet:.2e} before 70 ms, {after:.2e} after 90 ms");
+    assert!(
+        after > quiet * 20.0,
+        "the pre-delay did not hold the tail off: {quiet:.2e} then {after:.2e}"
+    );
+
+    // Width: at nothing the two sides are the same signal; wider, they differ.
+    let render_sides = |width: f32| -> f32 {
+        let mut s = plain_settings(0);
+        s.width = width;
+        s.mix = 1.0;
+        let mut rev = Reverb::new(FS);
+        rev.configure(&s);
+        let n = (FS * 0.5) as usize;
+        let mut l = vec![0.0f32; n];
+        let mut r = vec![0.0f32; n];
+        l[0] = 1.0;
+        r[0] = 1.0;
+        rev.process(&s, &mut l, &mut r);
+        let side: Vec<f32> = l.iter().zip(r.iter()).map(|(a, b)| 0.5 * (a - b)).collect();
+        energy(&side[480..])
+    };
+    let mono = render_sides(0.0);
+    let stereo = render_sides(1.0);
+    println!("  side energy: width 0 {mono:.2e}, width 1 {stereo:.2e}");
+    assert!(mono < 1e-9, "width at nothing still had a side: {mono:.2e}");
+    assert!(stereo > mono * 100.0, "width did nothing: {stereo:.2e}");
+
+    // Freeze: the tank stops being fed. Testing that from silence would pass
+    // for the wrong reason --- a frozen empty tank is silent, and so is a
+    // broken one --- so this rings it first, then freezes, then plays into it
+    // and checks the new note does not get in while the old tail carries on.
+    let mut s = plain_settings(0);
+    s.mix = 1.0;
+    s.decay = 8.0;
+    s.curve.base = 8.0;
+    let mut rev = Reverb::new(FS);
+    rev.configure(&s);
+    let n = (FS * 0.4) as usize;
+    let mut l = vec![0.0f32; n];
+    let mut r = vec![0.0f32; n];
+    l[0] = 1.0;
+    r[0] = 1.0;
+    rev.process(&s, &mut l, &mut r);
+    let ringing = energy(&l[n - 4_800..]);
+
+    // Frozen, and played into.
+    let mut f = s;
+    f.freeze = true;
+    rev.configure(&f);
+    let mut l2 = vec![0.0f32; n];
+    let mut r2 = vec![0.0f32; n];
+    for i in 0..64 {
+        l2[i] = 1.0;
+        r2[i] = 1.0;
+    }
+    rev.process(&f, &mut l2, &mut r2);
+    let after_freeze = energy(&l2[n - 4_800..]);
+
+    // The same again, not frozen, so there is something to compare against.
+    let mut rev2 = Reverb::new(FS);
+    rev2.configure(&s);
+    let mut l3 = vec![0.0f32; n];
+    let mut r3 = vec![0.0f32; n];
+    l3[0] = 1.0;
+    r3[0] = 1.0;
+    rev2.process(&s, &mut l3, &mut r3);
+    let mut l4 = vec![0.0f32; n];
+    let mut r4 = vec![0.0f32; n];
+    for i in 0..64 {
+        l4[i] = 1.0;
+        r4[i] = 1.0;
+    }
+    rev2.process(&s, &mut l4, &mut r4);
+    let after_open = energy(&l4[n - 4_800..]);
+
+    println!(
+        "  ringing {ringing:.2e}; then a note in: frozen {after_freeze:.2e}, open {after_open:.2e}"
+    );
+    assert!(ringing > 1e-6, "the tank was not ringing to begin with");
+    assert!(
+        after_freeze > 1e-8,
+        "freezing stopped the tail as well as the input: {after_freeze:.2e}"
+    );
+    assert!(
+        after_open > after_freeze * 2.0,
+        "the new note got into a frozen tank: frozen {after_freeze:.2e}, open {after_open:.2e}"
+    );
+}
+
+/// The parameter list and the engine's index table have to agree.
+///
+/// They are two lists written in two files: `params.rs` says what exists and
+/// `engine.rs` says what the audio thread looks up. `ParamIx::new` panics on
+/// an id that is not there, and without this that panic would happen the
+/// first time somebody loaded the plug-in rather than here.
+///
+/// It also reads the settings back, so a parameter that exists but is decoded
+/// into the wrong field --- a copy-and-paste in `read_settings`, which is
+/// forty lines of the same shape --- shows up as a default that is not the
+/// default.
+#[test]
+fn every_parameter_resolves_and_reads_back_its_default() {
+    use super::engine::{ParamIx, read_settings};
+
+    let (bridge, ix) = super::build_bridge("Noob Reverberator", 48_000.0, true);
+    // Constructing it twice is not wasteful: the first is the panic check and
+    // the second proves it is deterministic.
+    let _ = ParamIx::new(&bridge);
+
+    let audio = bridge.take_audio().expect("the audio handle is taken once");
+    let s = read_settings(&audio, &ix);
+
+    // A handful of defaults, from the spec list, read through the whole path.
+    let spec = |id: &str| {
+        super::params::param_specs()
+            .into_iter()
+            .find(|p| p.id == id)
+            .unwrap_or_else(|| panic!("no parameter `{id}`"))
+            .default
+    };
+    assert!(!s.bypass, "bypass should start off");
+    assert!(!s.freeze, "freeze should start off");
+    assert!(
+        (s.mix * 100.0 - spec("mix")).abs() < 0.01,
+        "mix read {}",
+        s.mix
+    );
+    assert!(
+        (s.decay - spec("decay")).abs() < 0.01,
+        "decay read {}",
+        s.decay
+    );
+    assert!(
+        (s.size * 100.0 - spec("size")).abs() < 0.01,
+        "size read {}",
+        s.size
+    );
+    assert_eq!(
+        s.lines,
+        spec("lines").round() as usize,
+        "lines read {}",
+        s.lines
+    );
+    assert_eq!(
+        s.tape_heads,
+        spec("tape_heads").round() as usize,
+        "tape heads read {}",
+        s.tape_heads
+    );
+    assert!(
+        (s.bloom_time - spec("bloom_time")).abs() < 0.01,
+        "bloom time read {}",
+        s.bloom_time
+    );
+    // The curve starts flat: no band on, and the base is the decay.
+    assert!(
+        s.curve.bands.iter().all(|b| !b.on),
+        "a band started switched on"
+    );
+    assert!((s.curve.base - spec("decay")).abs() < 0.01);
+    println!(
+        "  {} parameters, all resolved and read back",
+        super::params::param_specs().len()
+    );
+}

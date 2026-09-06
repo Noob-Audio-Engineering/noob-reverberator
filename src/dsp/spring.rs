@@ -42,10 +42,6 @@ struct Ap1 {
 }
 
 impl Ap1 {
-    fn a(&self) -> f32 {
-        self.a
-    }
-
     #[inline]
     fn process(&mut self, x: f32) -> f32 {
         let y = self.a * (x - self.y1) + self.x1;
@@ -104,8 +100,7 @@ impl Spring {
 
     /// One trip, which is what a fit for this coil is against.
     pub fn trip(&self) -> f32 {
-        let a = self.chain[0].a();
-        self.len + self.used as f32 * (1.0 + a) / (1.0 - a)
+        self.len + self.used as f32
     }
 
     /// `tension` sets how strong the dispersion is --- a tight spring chirps
@@ -121,10 +116,26 @@ impl Spring {
     }
 
     /// The coil only, without fitting anything.
+    ///
+    /// # The coefficient is negative, and that is the whole thing
+    ///
+    /// A first-order allpass `(a + z⁻¹)/(1 + a·z⁻¹)` has a group delay of
+    /// `(1−a)/(1+a)` at the bottom of the band and `(1+a)/(1−a)` at the top.
+    /// With a **positive** `a` the top is delayed more, and a hundred of them
+    /// in cascade delay the top of the audible band by about as much as the
+    /// bottom --- the dispersion all happens up near Nyquist where nothing
+    /// is.
+    ///
+    /// I had it positive. Measured, a slack coil put 4 kHz at 30.2 ms and
+    /// 300 Hz at 30.3 ms: a tenth of a millisecond of chirp, which is no
+    /// chirp. It decayed correctly the whole time, which is why nothing else
+    /// caught it --- a spring that does not chirp is a small dark plate, and
+    /// it measures like one.
+    ///
+    /// Negative, the bottom of the band is delayed more and the top comes
+    /// back first, which is the descending "boing" a spring is recognised by.
     pub fn set_shape(&mut self, tension: f32, sections: usize, delay_ms: f32) {
-        // Below zero the cascade delays the *top* of the band instead, which
-        // is a chirp sweeping the wrong way and not a spring.
-        let a = tension.clamp(0.05, 0.95);
+        let a = -tension.clamp(0.05, 0.95);
         self.used = sections.clamp(1, MAX_SECTIONS);
         for s in &mut self.chain[..self.used] {
             s.a = a;

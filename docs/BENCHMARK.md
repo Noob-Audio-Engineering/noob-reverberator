@@ -68,7 +68,7 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 | Chamber | network | 2.20 s | 2.20 s | 0.017 oct at 500 Hz |
 | Plate | plate | 2.40 s | 1.98 s | 0.300 oct at 500 Hz |
 | Small Plate | plate | 1.20 s | 1.05 s | 0.284 oct at 125 Hz |
-| Spring | spring | 1.80 s | 1.44 s | 0.327 oct at 125 Hz |
+| Spring | spring | 1.80 s | 2.12 s | 0.258 oct at 125 Hz |
 | Reflections | early | 0.35 s | no tail to measure | — |
 | Ambience | network | 1.10 s | 1.10 s | 0.072 oct at 125 Hz |
 | Cloud | network | 12.00 s | 12.00 s | 0.001 oct at 125 Hz |
@@ -84,7 +84,7 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 | Chorale | network | 7.00 s | 7.01 s | 0.007 oct at 125 Hz |
 | Choir Loft | network | 9.00 s | 9.01 s | 0.004 oct at 125 Hz |
 | Tape Chamber | network | 2.00 s | 1.79 s | 0.162 oct at 1000 Hz |
-| Long Spring | spring | 3.00 s | 2.54 s | 0.242 oct at 125 Hz |
+| Long Spring | spring | 3.00 s | 3.39 s | 0.192 oct at 125 Hz |
 | Supermassive | network | 30.00 s | 30.01 s | 0.001 oct at 500 Hz |
 | Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.201 oct at 1000 Hz |
 | Tight Ambience | network | 0.45 s | 0.46 s | 0.040 oct at 500 Hz |

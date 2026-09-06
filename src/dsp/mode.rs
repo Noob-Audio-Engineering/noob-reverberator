@@ -570,7 +570,3 @@ pub static MODES: &[Mode] = &[
 pub fn names() -> Vec<&'static str> {
     MODES.iter().map(|m| m.name).collect()
 }
-
-pub fn get(i: usize) -> &'static Mode {
-    &MODES[i.min(MODES.len() - 1)]
-}
