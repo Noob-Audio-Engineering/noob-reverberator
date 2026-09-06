@@ -88,6 +88,9 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 | Supermassive | network | 30.00 s | 30.01 s | 0.001 oct at 500 Hz |
 | Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.201 oct at 1000 Hz |
 | Tight Ambience | network | 0.45 s | 0.46 s | 0.040 oct at 500 Hz |
+| Bloom | network | 3.60 s | 3.60 s | 0.007 oct at 500 Hz |
+| Far Hall | network | 5.00 s | 5.01 s | 0.038 oct at 125 Hz |
+| Thick Chamber | network | 2.40 s | 2.40 s | 0.013 oct at 125 Hz |
 
 ### What the era colouring does to the reading
 

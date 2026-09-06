@@ -2,10 +2,12 @@
 
 use noob_vst_webgui_framework::{AudioHandle, NoobVstWebguiFramework};
 
+use super::bloom::Bloom;
 use super::colour::{Colour, Era};
 use super::decay::{Band, Curve, MAX_BANDS, Shape};
 use super::delay::Delay;
 use super::diffuse::Diffuser;
+use super::duck::{AutoGate, Ducker};
 use super::early::Early;
 use super::fdn::{Fdn, MAX_LINES, prime_lengths};
 use super::formant::Choir;
@@ -48,6 +50,15 @@ pub struct Settings {
     pub tension: f32,
     pub sections: usize,
     pub lines: usize,
+    pub distance: f32,
+    pub thickness: f32,
+    pub duck: f32,
+    pub duck_release: f32,
+    pub gate: f32,
+    pub gate_hold: f32,
+    pub bloom: f32,
+    pub bloom_time: f32,
+    pub bloom_swell: f32,
     pub tape_mix: f32,
     pub tape_time: f32,
     pub tape_heads: usize,
@@ -92,6 +103,15 @@ pub struct ParamIx {
     pub tension: usize,
     pub sections: usize,
     pub lines: usize,
+    pub distance: usize,
+    pub thickness: usize,
+    pub duck: usize,
+    pub duck_release: usize,
+    pub gate: usize,
+    pub gate_hold: usize,
+    pub bloom: usize,
+    pub bloom_time: usize,
+    pub bloom_swell: usize,
     pub tape_mix: usize,
     pub tape_time: usize,
     pub tape_heads: usize,
@@ -156,6 +176,15 @@ impl ParamIx {
             tension: ix("tension"),
             sections: ix("sections"),
             lines: ix("lines"),
+            distance: ix("distance"),
+            thickness: ix("thickness"),
+            duck: ix("duck"),
+            duck_release: ix("duck_release"),
+            gate: ix("gate"),
+            gate_hold: ix("gate_hold"),
+            bloom: ix("bloom"),
+            bloom_time: ix("bloom_time"),
+            bloom_swell: ix("bloom_swell"),
             tape_mix: ix("tape_mix"),
             tape_time: ix("tape_time"),
             tape_heads: ix("tape_heads"),
@@ -218,6 +247,15 @@ pub fn read_settings(audio: &AudioHandle, ix: &ParamIx) -> Settings {
         tension: p(ix.tension) / 100.0,
         sections: p(ix.sections).round().max(1.0) as usize,
         lines: p(ix.lines).round().clamp(4.0, 16.0) as usize,
+        distance: p(ix.distance) / 100.0,
+        thickness: p(ix.thickness) / 100.0,
+        duck: p(ix.duck) / 100.0,
+        duck_release: p(ix.duck_release),
+        gate: p(ix.gate) / 100.0,
+        gate_hold: p(ix.gate_hold),
+        bloom: p(ix.bloom) / 100.0,
+        bloom_time: p(ix.bloom_time),
+        bloom_swell: p(ix.bloom_swell),
         tape_mix: p(ix.tape_mix) / 100.0,
         tape_time: p(ix.tape_time),
         tape_heads: p(ix.tape_heads).round().max(1.0) as usize,
@@ -251,6 +289,11 @@ pub struct Reverb {
     colour: Colour,
     tape: Tape,
     choir: Choir,
+    bloom: Bloom,
+    ducker: Ducker,
+    gate: AutoGate,
+    /// How much saturation the tank is being driven with, from Thickness.
+    drive: f32,
     pre: [Delay; 2],
     mods: Vec<Modulator>,
     lens: Vec<f32>,
@@ -286,6 +329,10 @@ impl Reverb {
             colour: Colour::new(fs),
             tape: Tape::new(fs, 2_200.0),
             choir: Choir::new(fs),
+            bloom: Bloom::new(fs, 800.0),
+            ducker: Ducker::new(fs),
+            gate: AutoGate::new(fs),
+            drive: 0.0,
             pre: [
                 Delay::with_capacity((fs * MAX_PREDELAY_MS / 1000.0) as usize + 64),
                 Delay::with_capacity((fs * MAX_PREDELAY_MS / 1000.0) as usize + 64),
@@ -318,6 +365,9 @@ impl Reverb {
         self.colour.reset();
         self.tape.clear();
         self.choir.clear();
+        self.bloom.clear();
+        self.ducker.reset();
+        self.gate.reset();
         for p in &mut self.pre {
             p.clear();
         }
@@ -345,6 +395,9 @@ impl Reverb {
         s.tape_mix = m.tape;
         s.choir_amount = m.choir;
         s.choir_vowel = m.vowel;
+        s.distance = m.distance;
+        s.thickness = m.thickness;
+        s.bloom = m.bloom;
         s.curve.base = m.decay;
     }
 }
@@ -388,9 +441,18 @@ impl Reverb {
         for m in &mut self.mods {
             m.set_rate(self.fs, s.mod_rate);
         }
+        // Distance is a macro, and honest about it: walking away from a
+        // source means less of the early pattern, more diffusion by the time
+        // it arrives, a longer build-up and a little less top from the air in
+        // between. Every one of those is a control that already exists, so
+        // this moves them rather than adding a fifth thing that does the same
+        // job differently. Pro-R's own description is the specification: "a
+        // longer build-up and a more diffuse tail".
+        let far = s.distance.clamp(0.0, 1.0);
+        let density = (s.density + far * (1.0 - s.density) * 0.7).clamp(0.0, 1.0);
         for d in &mut self.diff {
-            d.set_scale(size, 900.0);
-            d.set_amount(s.density);
+            d.set_scale(size * (1.0 + far * 0.5), 900.0);
+            d.set_amount(density);
             d.set_modulation(self.fs, s.mod_rate * 0.7, s.mod_depth * 12.0, s.mod_random);
         }
         for sh in &mut self.shift {
@@ -419,8 +481,10 @@ impl Reverb {
         // that is a property of the line lengths --- it is the control
         // somebody reaches for when they want the reverb to arrive late, and
         // it is honest about being a fade.
-        self.attack_coef = if s.attack_ms > 0.5 {
-            (-1.0f32 / (s.attack_ms * 0.001 * self.fs)).exp()
+        // Distance lengthens the build-up, which is the attack fade.
+        let attack_ms = s.attack_ms + far * 220.0;
+        self.attack_coef = if attack_ms > 0.5 {
+            (-1.0f32 / (attack_ms * 0.001 * self.fs)).exp()
         } else {
             0.0
         };
@@ -456,6 +520,15 @@ impl Reverb {
                 self.pre[1].read(self.pre_len),
             );
 
+            // Bloom regenerates before the tank hears anything, so the tank's
+            // input grows rather than the tail being faded in. That is why it
+            // is here and not on the wet path with the attack.
+            let (pl, pr) = if s.bloom > 0.0 {
+                (self.bloom.process(pl), pr)
+            } else {
+                (pl, pr)
+            };
+
             // The tape sits between the pre-delay and the tank, which is what
             // makes it a Magneto rather than an echo after a reverb: its
             // repeats are what the room hears, so each one gets its own tail.
@@ -474,6 +547,19 @@ impl Reverb {
             // still applies, so this is a very long tail rather than a hold,
             // and the panel says which.
             let feed = if s.freeze { 0.0 } else { 1.0 };
+            // Thickness's saturation, on the way in. `tanh` is bounded, so
+            // driving it harder makes the tank denser and cannot make it
+            // louder without limit --- which matters when the thing being
+            // driven is a feedback loop.
+            let sat = |v: f32| {
+                if self.drive > 0.0 {
+                    let k = 1.0 + self.drive * 5.0;
+                    (v * k).tanh() / k.tanh()
+                } else {
+                    v
+                }
+            };
+            let (pl, pr) = (sat(pl), sat(pr));
             let (mut wl, mut wr) = match self.arch {
                 Arch::Network => {
                     let a = self.diff[0].process(pl * feed);
@@ -535,7 +621,9 @@ impl Reverb {
                 ol *= self.attack_gain;
                 or *= self.attack_gain;
             }
-            let g = self.shaper.next(0.5 * (dry_l + dry_r));
+            let dry_mono = 0.5 * (dry_l + dry_r);
+            let g =
+                self.shaper.next(dry_mono) * self.ducker.next(dry_mono) * self.gate.next(dry_mono);
             ol *= g;
             or *= g;
 
@@ -585,6 +673,15 @@ fn same(a: &Settings, b: &Settings) -> bool {
         && a.tension == b.tension
         && a.sections == b.sections
         && a.lines == b.lines
+        && a.distance == b.distance
+        && a.thickness == b.thickness
+        && a.duck == b.duck
+        && a.duck_release == b.duck_release
+        && a.gate == b.gate
+        && a.gate_hold == b.gate_hold
+        && a.bloom == b.bloom
+        && a.bloom_time == b.bloom_time
+        && a.bloom_swell == b.bloom_swell
         && a.tape_time == b.tape_time
         && a.tape_heads == b.tape_heads
         && a.tape_feedback == b.tape_feedback

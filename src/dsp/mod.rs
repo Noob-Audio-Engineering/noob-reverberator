@@ -5,10 +5,12 @@
 //! person draws, [`loss`] turns it into the filter each delay line needs, and
 //! everything else is the reverberator those lines are wired into.
 
+pub mod bloom;
 pub mod colour;
 pub mod decay;
 pub mod delay;
 pub mod diffuse;
+pub mod duck;
 pub mod early;
 pub mod engine;
 pub mod fdn;

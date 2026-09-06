@@ -205,6 +205,55 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .default(50.0)
             .unit("%")
             .group("choir"),
+        ParamSpec::new("distance", "Distance")
+            .range(0.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("space"),
+        ParamSpec::new("thickness", "Thickness")
+            .range(0.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("space"),
+        ParamSpec::new("duck", "Ducking")
+            .range(0.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("dynamics"),
+        ParamSpec::new("duck_release", "Duck Release")
+            .range(20.0, 2000.0)
+            .default(250.0)
+            .unit("ms")
+            .log()
+            .group("dynamics"),
+        ParamSpec::new("gate", "Auto Gate")
+            .range(0.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("dynamics"),
+        ParamSpec::new("gate_hold", "Gate Hold")
+            .range(20.0, 3000.0)
+            .default(300.0)
+            .unit("ms")
+            .log()
+            .group("dynamics"),
+        ParamSpec::new("bloom", "Bloom")
+            .range(0.0, 100.0)
+            .default(0.0)
+            .unit("%")
+            .group("bloom"),
+        ParamSpec::new("bloom_time", "Bloom Time")
+            .range(10.0, 600.0)
+            .default(120.0)
+            .unit("ms")
+            .log()
+            .group("bloom"),
+        ParamSpec::new("bloom_swell", "Bloom Swell")
+            .range(50.0, 4000.0)
+            .default(600.0)
+            .unit("ms")
+            .log()
+            .group("bloom"),
         ParamSpec::new("lines", "Lines")
             .range(4.0, 16.0)
             .default(12.0)

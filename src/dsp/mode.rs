@@ -68,6 +68,11 @@ pub struct Mode {
     /// How much vowel is put on the tail, and which one.
     pub choir: f32,
     pub vowel: f32,
+    /// How far away the source is, and how thick the tank runs.
+    pub distance: f32,
+    pub thickness: f32,
+    /// How much the generator in front of the tank swells.
+    pub bloom: f32,
 }
 
 /// A mode with everything quiet, to be written over.
@@ -93,6 +98,9 @@ const fn base(name: &'static str, blurb: &'static str, arch: Arch) -> Mode {
         tape: 0.0,
         choir: 0.0,
         vowel: 0.0,
+        distance: 0.0,
+        thickness: 0.0,
+        bloom: 0.0,
     }
 }
 
@@ -502,6 +510,57 @@ pub static MODES: &[Mode] = &[
         ..base(
             "Tight Ambience",
             "Barely a reverb: a size and a little air, for things that must stay dry.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 14,
+        size: 1.3,
+        decay: 3.6,
+        density: 0.7,
+        attack: 20.0,
+        mod_rate: 0.5,
+        mod_depth: 9.0,
+        mod_random: 0.45,
+        early: 0.1,
+        bloom: 0.75,
+        ..base(
+            "Bloom",
+            "A generator swells in front of the tank, so the reverb arrives after the note.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 16,
+        size: 2.0,
+        decay: 5.0,
+        density: 0.6,
+        attack: 10.0,
+        mod_rate: 0.4,
+        mod_depth: 10.0,
+        mod_random: 0.55,
+        early: 0.35,
+        distance: 0.8,
+        ..base(
+            "Far Hall",
+            "The same hall from the back of it: less pattern, longer build, more diffuse.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 12,
+        size: 1.0,
+        decay: 2.4,
+        density: 0.8,
+        attack: 4.0,
+        mod_rate: 0.9,
+        mod_depth: 7.0,
+        mod_random: 0.3,
+        early: 0.2,
+        thickness: 0.8,
+        ..base(
+            "Thick Chamber",
+            "Driven into its own saturation: denser, warmer, and less polite.",
             Arch::Network,
         )
     },

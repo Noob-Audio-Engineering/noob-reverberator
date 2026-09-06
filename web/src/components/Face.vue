@@ -78,6 +78,16 @@ const choirVowel = useParam('choir_vowel');
 const choirSpread = useParam('choir_spread');
 const choirResonance = useParam('choir_resonance');
 
+const distance = useParam('distance');
+const thickness = useParam('thickness');
+const duck = useParam('duck');
+const duckRelease = useParam('duck_release');
+const gate = useParam('gate');
+const gateHold = useParam('gate_hold');
+const bloom = useParam('bloom');
+const bloomTime = useParam('bloom_time');
+const bloomSwell = useParam('bloom_swell');
+
 const list = modes();
 const modeNames = list.map((x) => x.name);
 const current = computed(() => list[Math.round(mode.value ?? 0)] ?? {});
@@ -135,6 +145,8 @@ const bands = Array.from({ length: bandCount() }, (_, i) => i + 1);
           <Knob :p="predelay" :size="40" label="Pre" />
           <Knob :p="width" :size="40" label="Width" />
           <Knob v-if="arch === 'network'" :p="lines" :size="40" label="Lines" />
+          <Knob :p="distance" :size="40" label="Distance" />
+          <Knob :p="thickness" :size="40" label="Thickness" />
         </div>
       </Panel>
 
@@ -211,6 +223,31 @@ const bands = Array.from({ length: bandCount() }, (_, i) => i + 1);
         <p class="mt-2 text-[10px] leading-snug text-[var(--faint)]">
           A vowel is two or three resonances at fixed frequencies. They do not move with the
           pitch, which is why a sung note stays the same vowel across an octave.
+        </p>
+      </Panel>
+
+      <Panel title="Bloom" hint="it swells before the tank hears it">
+        <div class="flex items-end gap-1">
+          <Knob :p="bloom" :size="40" label="Amount" />
+          <Knob :p="bloomTime" :size="40" label="Time" />
+          <Knob :p="bloomSwell" :size="40" label="Swell" />
+        </div>
+        <p class="mt-2 text-[10px] leading-snug text-[var(--faint)]">
+          A note starts it and it grows on its own, so the reverb arrives after the note rather
+          than being faded in behind it. That is what Attack does instead.
+        </p>
+      </Panel>
+
+      <Panel title="Dynamics" hint="keeping the tail out of the way">
+        <div class="flex flex-wrap items-end gap-1">
+          <Knob :p="duck" :size="40" label="Duck" />
+          <Knob :p="duckRelease" :size="40" label="Release" />
+          <Knob :p="gate" :size="40" label="Gate" />
+          <Knob :p="gateHold" :size="40" label="Hold" />
+        </div>
+        <p class="mt-2 text-[10px] leading-snug text-[var(--faint)]">
+          Both watch the dry signal, not the wet. The gate's threshold follows the level, so
+          the same performance printed quieter gates the same way.
         </p>
       </Panel>
 

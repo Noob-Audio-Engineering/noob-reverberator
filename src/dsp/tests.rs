@@ -658,3 +658,156 @@ fn a_tilt_lengthens_one_end_and_shortens_the_other() {
     }
     assert!(worst < 0.25, "worst {worst:.3} octaves");
 }
+
+/// Ducking has to pull the wet down **while the dry is loud** and let it back
+/// as the dry falls away. Getting it backwards, or driving it from the wet
+/// instead, still produces a reverb that moves --- so this measures which way
+/// round it moves.
+#[test]
+fn ducking_gets_out_of_the_way_and_comes_back() {
+    use super::duck::Ducker;
+
+    const FS: f32 = 48_000.0;
+    let mut d = Ducker::new(FS);
+    d.set(0.8, 5.0, 120.0);
+
+    // A second of loud dry, then a second of silence.
+    let mut during = 1.0f32;
+    let mut after = 0.0f32;
+    for i in 0..(FS as usize * 2) {
+        let dry = if i < FS as usize { 0.9 } else { 0.0 };
+        let g = d.next(dry);
+        // The last tenth of each half, once the detector has settled.
+        if i > (FS * 0.9) as usize && i < FS as usize {
+            during = during.min(g);
+        }
+        if i > (FS * 1.9) as usize {
+            after = after.max(g);
+        }
+    }
+    println!("  ducking: {during:.3} while loud, {after:.3} after");
+    assert!(
+        during < 0.4,
+        "it should duck while the dry is loud: {during:.3}"
+    );
+    assert!(after > 0.95, "it should come back afterwards: {after:.3}");
+}
+
+/// The gate has to close on the tail once the signal has gone, and its
+/// threshold has to follow the signal rather than being an absolute number
+/// --- so the same performance printed twelve decibels quieter gates the
+/// same way.
+#[test]
+fn the_gate_closes_after_the_signal_and_follows_its_level() {
+    use super::duck::AutoGate;
+
+    const FS: f32 = 48_000.0;
+    let run = |level: f32| -> (f32, f32) {
+        let mut g = AutoGate::new(FS);
+        g.set(1.0, 100.0);
+        let mut open = 0.0f32;
+        let mut shut = 1.0f32;
+        for i in 0..(FS as usize * 2) {
+            let dry = if i < FS as usize { level } else { 0.0 };
+            let v = g.next(dry);
+            if i > (FS * 0.9) as usize && i < FS as usize {
+                open = open.max(v);
+            }
+            if i > (FS * 1.9) as usize {
+                shut = shut.min(v);
+            }
+        }
+        (open, shut)
+    };
+
+    let (open_loud, shut_loud) = run(0.9);
+    let (open_quiet, shut_quiet) = run(0.9 / 4.0); // twelve decibels down
+    println!("  gate loud : open {open_loud:.3}, shut {shut_loud:.3}");
+    println!("  gate quiet: open {open_quiet:.3}, shut {shut_quiet:.3}");
+    assert!(
+        open_loud > 0.95 && open_quiet > 0.95,
+        "it must open for both"
+    );
+    assert!(
+        shut_loud < 0.05 && shut_quiet < 0.05,
+        "it must shut for both"
+    );
+}
+
+/// A bloom has to **grow**, and it grows the way the machine is played: while
+/// a note is held.
+///
+/// My first attempt at this test fed a fifty-millisecond burst and asked for
+/// the output to be louder later than sooner. It never can be. The generator
+/// passes the input through its delay at full level and only scales what
+/// comes *back*, so the first repeat is as loud as the note and no later one
+/// can exceed it --- that would need a feedback above unity, which is not a
+/// bloom, it is a fault. What accumulates is energy over successive passes,
+/// and a burst gives it nothing to accumulate.
+///
+/// So this holds a sound, which is what somebody does with the machine, and
+/// asks whether **energy accumulates**.
+///
+/// With noise and not a tone, and by RMS and not a peak. A tone through a
+/// feedback loop is a comb, and where the tone sits between the comb's teeth
+/// decides the level far more than the feedback does --- measured with a
+/// 220 Hz note through a 90 ms loop, raising the feedback *lowered* the peak,
+/// because the note moved towards a null. That is the measurement reporting on
+/// where one frequency happens to land, not on whether the machine builds.
+#[test]
+fn a_bloom_grows_while_a_note_is_held() {
+    use super::bloom::Bloom;
+
+    const FS: f32 = 48_000.0;
+    let run = |amount: f32, swell_ms: f32| -> (f32, f32) {
+        let mut b = Bloom::new(FS, 800.0);
+        b.set(amount, 90.0, swell_ms);
+        let n = (FS * 1.5) as usize;
+        let mut out = vec![0.0f32; n];
+        let mut rng = 0x1234_5678u32;
+        for (i, o) in out.iter_mut().enumerate() {
+            rng ^= rng << 13;
+            rng ^= rng >> 17;
+            rng ^= rng << 5;
+            let noise = (rng >> 8) as f32 / 8_388_608.0 - 1.0;
+            // A quarter of a second of silence first, so there is an onset to
+            // trigger the swell rather than the run starting mid-sound.
+            let x = if i > (FS * 0.25) as usize {
+                noise * 0.25
+            } else {
+                0.0
+            };
+            *o = b.process(x);
+        }
+        let rms = |from: f32, to: f32| {
+            let a = (FS * from) as usize;
+            let z = ((FS * to) as usize).min(n);
+            let s: f64 = out[a..z].iter().map(|v| (*v as f64) * (*v as f64)).sum();
+            (s / (z - a) as f64).sqrt() as f32
+        };
+        (rms(0.30, 0.40), rms(1.1, 1.45))
+    };
+
+    let (early, late) = run(0.9, 600.0);
+    println!("  bloom on : {early:.3} early, {late:.3} late");
+    // A feedback reaching about 0.8 raises a broadband RMS by roughly
+    // `1/sqrt(1 - g²)`, which is 1.7, and the swell is already past its peak
+    // by the late window --- so 1.35 is close to what the arithmetic predicts
+    // rather than a bound picked for comfort. Measured: 1.47.
+    assert!(
+        late > early * 1.35,
+        "a held sound should build: {early:.3} then {late:.3}"
+    );
+
+    // Against the same loop with no swell at all: `amount` at nothing leaves
+    // the generator out of the path entirely, so this compares growing
+    // feedback against none.
+    let (flat_early, flat_late) = run(0.0, 600.0);
+    println!("  bloom off: {flat_early:.3} early, {flat_late:.3} late");
+    let grew = late / early.max(1e-6);
+    let flat = flat_late / flat_early.max(1e-6);
+    assert!(
+        grew > flat * 1.4,
+        "the swell should build more than a bare path: {grew:.2} against {flat:.2}"
+    );
+}

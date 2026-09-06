@@ -142,7 +142,7 @@ disagreeing about which way a tilt points on the first comparison.
 
 **The axes the survey found the modes actually vary on** — attack, decay,
 density, size — are controls rather than presets of a hidden algorithm.
-Twenty-six modes are places to stand in that space, and everything a mode sets
+Twenty-nine modes are places to stand in that space, and everything a mode sets
 stays movable afterwards. Twelve presets go further, each a mode plus the
 handful of controls it moves; they are stored that way rather than as a dump of
 every parameter, because a dump has to be re-issued whenever a parameter is
@@ -154,6 +154,25 @@ pitch. **Era** is a bandwidth, a word length and a rate inside the tank,
 applied to whichever architecture is running. **Shape** is the machines that
 are not spaces at all — gate, reverse, ramp, swoosh, swell. **Shift** puts a
 transposed copy back into the feedback, which is what a shimmer is.
+
+**Distance** and **Thickness** are macros and say so: distance moves the early
+pattern down, the diffusion up, the build-up longer and the top down a little,
+because that is what walking away from a source does and every one of those is
+a control that already exists. Thickness is density and a bounded saturation
+into the tank, so driving it harder makes the reverb denser and cannot make it
+louder without limit — which matters when the thing being driven is a feedback
+loop.
+
+**Ducking** and the **auto gate** both watch the dry signal rather than the
+wet. Ducking from the wet is a compressor on the return: the tail pulls itself
+down and releases into its own decay, which pumps. The gate's threshold follows
+the signal, so the same performance printed twelve decibels quieter gates the
+same way — measured.
+
+**Bloom** is a generator with its own rising feedback in front of the tank, so
+the reverb arrives *after* the note rather than being faded in behind it, which
+is what Attack does. Measured on held noise, it builds 1.47× while the same
+path without it stays flat at 0.98×.
 
 **Tape** is a multi-head echo *in front of* the tank, which is what makes it a
 Magneto rather than an echo after a reverb: its repeats are what the room
