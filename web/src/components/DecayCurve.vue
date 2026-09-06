@@ -16,14 +16,17 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useStream } from '@noob-audio-engineering/noob-vst-webgui-framework/vue';
 import BandPanel from './BandPanel.vue';
 import {
+  bandColour,
   createBandAt,
   curveFreq,
   deleteBand,
   hertz,
   meta,
+  modes,
   seconds,
   selected,
   useBands,
+  useParam,
 } from '../composables/useReverb.js';
 
 const canvas = ref(null);
@@ -33,6 +36,7 @@ const canvas = ref(null);
 // asked for.
 const asked = useStream('asked');
 const realised = useStream('realised');
+const spectrum = useStream('spectrum');
 const bands = useBands();
 /**
  * Whether there is a realised curve to draw, decided by **whether the engine
@@ -49,6 +53,16 @@ const bands = useBands();
  * over it is evaluated once and never again.
  */
 const hasRealised = ref(false);
+
+/**
+ * Whether shaping the curve does anything at all.
+ *
+ * The early-only architecture has no tank, so there is no decay for a band to
+ * change. Putting one there would draw a line nothing follows, so the canvas
+ * stops taking bands and says why.
+ */
+const modeParam = useParam('mode');
+const noTail = computed(() => (modes()[modeParam.index ?? 0] ?? {}).arch === 'early');
 
 const dragging = ref(-1);
 const hovering = ref(-1);
@@ -71,11 +85,13 @@ const size = ref({ w: 900, h: 300 });
 
 const xOf = (f) => (Math.log2(f / F_LO) / Math.log2(F_HI / F_LO)) * size.value.w;
 const fOf = (x) => F_LO * Math.pow(F_HI / F_LO, x / Math.max(1, size.value.w));
+/// The plot's own height: everything above the tail's strip.
+const plotH = () => Math.max(1, size.value.h - TAIL_H);
 const yOf = (t) => {
   const c = Math.min(T_HI, Math.max(T_LO, t));
-  return size.value.h * (1 - Math.log2(c / T_LO) / Math.log2(T_HI / T_LO));
+  return plotH() * (1 - Math.log2(c / T_LO) / Math.log2(T_HI / T_LO));
 };
-const tOf = (y) => T_LO * Math.pow(T_HI / T_LO, 1 - y / Math.max(1, size.value.h));
+const tOf = (y) => T_LO * Math.pow(T_HI / T_LO, 1 - y / plotH());
 
 /**
  * Where a band's handle sits, in frequency.
@@ -100,6 +116,63 @@ const TILT = 4;
 
 const GRID_F = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const GRID_T = [0.1, 0.3, 1, 3, 10, 30];
+
+/// The height of the tail's strip, in pixels.
+const TAIL_H = 54;
+/// The decibel range the strip covers. Sixty is the span a reverb tail spends
+/// most of its life in.
+const TAIL_TOP = 0;
+const TAIL_BOTTOM = -60;
+/// Peaks fall this much per frame, so a decaying tail is visible as a
+/// falling line rather than only as a flicker.
+const TAIL_FALL = 0.9;
+const held = [];
+
+function drawTail(g, w, h) {
+  const d = spectrum.data;
+  if (!d || !d.length) return;
+  const y0 = h - TAIL_H;
+  const yFor = (db) =>
+    h - ((Math.min(TAIL_TOP, Math.max(TAIL_BOTTOM, db)) - TAIL_BOTTOM) / (TAIL_TOP - TAIL_BOTTOM)) *
+      TAIL_H;
+
+  g.save();
+  g.globalAlpha = 0.5;
+  g.fillStyle = '#1a2c2a';
+  g.fillRect(0, y0, w, TAIL_H);
+  g.globalAlpha = 1;
+
+  g.beginPath();
+  g.moveTo(0, h);
+  for (let i = 0; i < d.length; i++) {
+    // A held peak that falls, so the eye can follow a decay instead of
+    // chasing a value that changes every frame.
+    const v = Number.isFinite(d[i]) ? d[i] : TAIL_BOTTOM;
+    held[i] = held[i] === undefined ? v : Math.max(v, held[i] - TAIL_FALL);
+    g.lineTo(xOf(curveFreq(i, d.length)), yFor(held[i]));
+  }
+  g.lineTo(w, h);
+  g.closePath();
+  const grad = g.createLinearGradient(0, y0, 0, h);
+  grad.addColorStop(0, 'rgba(74, 222, 128, 0.55)');
+  grad.addColorStop(1, 'rgba(74, 222, 128, 0.06)');
+  g.fillStyle = grad;
+  g.fill();
+
+  g.strokeStyle = 'rgba(74, 222, 128, 0.85)';
+  g.lineWidth = 1;
+  g.stroke();
+
+  g.strokeStyle = '#2a2440';
+  g.beginPath();
+  g.moveTo(0, y0);
+  g.lineTo(w, y0);
+  g.stroke();
+  g.fillStyle = '#5b5470';
+  g.font = '9px ui-sans-serif, system-ui, sans-serif';
+  g.fillText('the tail', 4, y0 + 10);
+  g.restore();
+}
 
 /** The asked curve's value at a frequency, read from the stream rather than
  *  from a second copy of the engine's arithmetic. */
@@ -138,12 +211,15 @@ function draw() {
     const x = xOf(f);
     g.beginPath();
     g.moveTo(x, 0);
-    g.lineTo(x, h);
+    g.lineTo(x, h - TAIL_H);
     g.stroke();
-    g.fillText(hertz(f), x + 3, h - 4);
+    // Above the tail's strip, not under it: the two were on top of each
+    // other and neither was readable.
+    g.fillText(hertz(f), x + 3, h - TAIL_H - 5);
   }
   for (const t of GRID_T) {
     const y = yOf(t);
+    if (y > h - TAIL_H) continue;
     g.beginPath();
     g.moveTo(0, y);
     g.lineTo(w, y);
@@ -174,6 +250,14 @@ function draw() {
     g.stroke();
   };
 
+  // The tail, along the bottom, in its **own** strip with its own scale.
+  //
+  // Not scaled onto the decay axis, which would be a lie: that axis is
+  // seconds, and this is decibels. A ribbon under the plot shares the
+  // frequency axis --- which is what makes it readable against the curve ---
+  // and says nothing about the other one.
+  drawTail(g, w, h);
+
   const rd = realised.data;
   const ok = !!(rd && rd.length && Number.isFinite(rd[Math.floor(rd.length / 2)]));
   if (hasRealised.value !== ok) hasRealised.value = ok;
@@ -198,7 +282,7 @@ function draw() {
     const r = i === dragging.value || i === hovering.value || isSel ? 9 : 6;
     g.beginPath();
     g.arc(x, y, r, 0, Math.PI * 2);
-    g.fillStyle = accent;
+    g.fillStyle = bandColour(i + 1);
     g.fill();
     g.strokeStyle = isSel ? '#ffffff' : '#0c0a14';
     g.lineWidth = 2;
@@ -220,6 +304,8 @@ onMounted(() => {
   // a stream sends nothing at all until it is subscribed.
   asked.subscribe({ maxHz: 10 });
   realised.subscribe({ maxHz: 10 });
+  // The tail moves, so it is worth more frames than the curves are.
+  spectrum.subscribe({ maxHz: 30 });
   loop();
 });
 onBeforeUnmount(() => cancelAnimationFrame(raf));
@@ -243,6 +329,7 @@ function pick(ev) {
 }
 
 function onDown(ev) {
+  if (noTail.value) return;
   const { x, y, i } = pick(ev);
 
   // Nothing under the pointer: make a band here.
@@ -372,7 +459,10 @@ const legend = computed(() =>
     <BandPanel />
     <!-- What the canvas does, said once, where somebody looking at it is. -->
     <div class="pointer-events-none absolute left-3 top-2 text-[10px] text-[var(--faint)]">
-      <span v-if="full" class="text-amber-400">
+      <span v-if="noTail" class="italic">
+        this architecture has no tail, so there is no decay to shape
+      </span>
+      <span v-else-if="full" class="text-amber-400">
         every band is in use — remove one to add another
       </span>
       <span v-else>click to add a band · drag to shape it · double-click to remove</span>

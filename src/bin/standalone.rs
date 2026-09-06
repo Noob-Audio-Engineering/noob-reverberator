@@ -54,6 +54,7 @@ impl Source {
 const S_METER: usize = 0;
 const S_ASKED: usize = 1;
 const S_REALISED: usize = 2;
+const S_SPECTRUM: usize = 3;
 
 fn audio_thread(mut audio: AudioHandle, ix: dsp::engine::ParamIx, blocks: Arc<AtomicU64>) {
     let mut rev = Reverb::new(SR);
@@ -65,6 +66,7 @@ fn audio_thread(mut audio: AudioHandle, ix: dsp::engine::ParamIx, blocks: Arc<At
     let mut r = vec![0.0f32; BLOCK];
     let mut asked = vec![0.0f32; dsp::CURVE_POINTS];
     let mut realised = vec![0.0f32; dsp::CURVE_POINTS];
+    let mut spectrum = vec![0.0f32; dsp::CURVE_POINTS];
     let block_dur = Duration::from_secs_f64(BLOCK as f64 / SR as f64);
     let mut next = Instant::now();
     let mut n: u64 = 0;
@@ -95,6 +97,11 @@ fn audio_thread(mut audio: AudioHandle, ix: dsp::engine::ParamIx, blocks: Arc<At
             fill_curves(&settings, &rev, &mut asked, &mut realised);
             audio.publish_slice(S_ASKED, &asked);
             audio.publish_slice(S_REALISED, &realised);
+        }
+        // The tail moves, so it goes out more often than the curves do.
+        if n.is_multiple_of(2) {
+            rev.fill_spectrum(&mut spectrum);
+            audio.publish_slice(S_SPECTRUM, &spectrum);
         }
 
         n += 1;

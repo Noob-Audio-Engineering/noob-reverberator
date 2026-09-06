@@ -15,6 +15,7 @@ pub mod early;
 pub mod engine;
 pub mod fdn;
 pub mod filters;
+pub mod fitter;
 pub mod formant;
 pub mod loss;
 pub mod measure;
@@ -115,6 +116,17 @@ pub fn streams() -> Vec<StreamSpec> {
                 "from": loss::FIT_BOTTOM,
                 "to": loss::FIT_TOP,
                 "unit": "s",
+            })),
+        // Appended, never inserted: streams are addressed by index, so a new
+        // one in the middle points every existing reader at the wrong data.
+        StreamSpec::new("spectrum", CURVE_POINTS)
+            .name("The tail")
+            .kind(StreamKind::Spectrum)
+            .meta(json!({
+                "axis": "log",
+                "from": loss::FIT_BOTTOM,
+                "to": loss::FIT_TOP,
+                "unit": "dB",
             })),
     ]
 }

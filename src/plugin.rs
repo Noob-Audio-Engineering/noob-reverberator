@@ -104,6 +104,7 @@ pub struct NoobReverberator {
     reverb: Reverb,
     asked: Vec<f32>,
     realised: Vec<f32>,
+    spectrum: Vec<f32>,
     right: Vec<f32>,
     /// Blocks since the curves were last published.
     since: u32,
@@ -113,6 +114,7 @@ pub struct NoobReverberator {
 const S_METER: usize = 0;
 const S_ASKED: usize = 1;
 const S_REALISED: usize = 2;
+const S_SPECTRUM: usize = 3;
 
 /// Blocks between publishing the two decay curves: they move when a control
 /// does, not per block.
@@ -140,6 +142,7 @@ impl Default for NoobReverberator {
             reverb: Reverb::new(48_000.0),
             asked: vec![0.0; dsp::CURVE_POINTS],
             realised: vec![0.0; dsp::CURVE_POINTS],
+            spectrum: vec![0.0; dsp::CURVE_POINTS],
             right: vec![0.0; MAX_BLOCK],
             since: 0,
         }
@@ -253,6 +256,11 @@ impl Plugin for NoobReverberator {
             }
             audio.publish_slice(S_ASKED, &self.asked);
             audio.publish_slice(S_REALISED, &self.realised);
+        }
+        // The tail moves, so it goes out more often than the curves do.
+        if self.since.is_multiple_of(2) {
+            self.reverb.fill_spectrum(&mut self.spectrum);
+            audio.publish_slice(S_SPECTRUM, &self.spectrum);
         }
 
         ProcessStatus::Normal

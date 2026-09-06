@@ -159,6 +159,20 @@ export function deleteBand(n) {
   if (selected.value === n) selected.value = null;
 }
 
+/**
+ * A band's colour.
+ *
+ * Hues are spaced by the golden angle rather than by dividing the circle into
+ * thirty-two, because a circle divided evenly puts bands 1 and 17 opposite
+ * each other and bands 1 and 2 almost on top of one another --- the pairs
+ * somebody actually compares are the adjacent ones. The golden angle keeps
+ * every *near* pair far apart in hue however many are on the screen.
+ */
+export function bandColour(n) {
+  const hue = ((n - 1) * 137.508) % 360;
+  return `hsl(${hue.toFixed(1)} 78% 66%)`;
+}
+
 /** Seconds to a label a person reads without counting zeros. */
 export function seconds(v) {
   if (!Number.isFinite(v)) return '--';

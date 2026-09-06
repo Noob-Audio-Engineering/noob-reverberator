@@ -2,6 +2,10 @@
 
 use noob_vst_webgui_framework::{AudioHandle, NoobVstWebguiFramework};
 
+use std::sync::Arc;
+
+use rustfft::{Fft, FftPlanner, num_complex::Complex};
+
 use super::bloom::Bloom;
 use super::colour::{Colour, Era};
 use super::decay::{Band, Curve, MAX_BANDS, Shape};
@@ -10,6 +14,7 @@ use super::diffuse::Diffuser;
 use super::duck::{AutoGate, Ducker};
 use super::early::Early;
 use super::fdn::{Fdn, MAX_LINES, prime_lengths};
+use super::fitter::{Fitter, Job};
 use super::formant::Choir;
 use super::mode::{Arch, MODES};
 use super::modulate::Modulator;
@@ -294,6 +299,30 @@ pub struct Reverb {
     gate: AutoGate,
     /// How much saturation the tank is being driven with, from Thickness.
     drive: f32,
+    /// The loss fitting, done off this thread.
+    fitter: Fitter,
+    /// The curve the outstanding fit was asked for, so an answer is applied
+    /// against the curve it was computed for and not a newer one.
+    asked_for: Curve,
+    /// A ring of the wet signal, and the transform that looks at it.
+    ///
+    /// The tail's own spectrum, so the panel can show what is ringing and
+    /// watch it fall. It is the **wet** signal and not the output: with the
+    /// mix down the output is mostly dry, and a picture of the dry signal
+    /// says nothing about the reverb.
+    spec_ring: Vec<f32>,
+    spec_pos: usize,
+    fft: Arc<dyn Fft<f32>>,
+    fft_buf: Vec<Complex<f32>>,
+    /// Whether any fit has landed yet.
+    ///
+    /// Until one has, the loss filters are at their default, which is a gain
+    /// of **zero** --- silence. The alternative default, a gain of one, is
+    /// worse: a feedback loop with no loss in it does not decay. So the very
+    /// first fit is done in place and waited for, and every one after it is
+    /// not. A plug-in that is silent for the first half second of its life is
+    /// a plug-in somebody reports as broken.
+    fitted: bool,
     pre: [Delay; 2],
     mods: Vec<Modulator>,
     lens: Vec<f32>,
@@ -306,6 +335,11 @@ pub struct Reverb {
     attack_gain: f32,
     attack_coef: f32,
 }
+
+/// How many samples the tail's spectrum is taken over. At 48 kHz this is
+/// 21 ms and about 47 Hz per bin, which is finer than the log grid it is
+/// mapped onto anywhere above the bottom octave.
+pub const SPEC_N: usize = 1024;
 
 /// How long a pre-delay may be, in milliseconds. Allocated for once.
 const MAX_PREDELAY_MS: f32 = 500.0;
@@ -333,6 +367,13 @@ impl Reverb {
             ducker: Ducker::new(fs),
             gate: AutoGate::new(fs),
             drive: 0.0,
+            fitter: Fitter::new(),
+            asked_for: Curve::default(),
+            spec_ring: vec![0.0; SPEC_N],
+            spec_pos: 0,
+            fft: FftPlanner::new().plan_fft_forward(SPEC_N),
+            fft_buf: vec![Complex::new(0.0, 0.0); SPEC_N],
+            fitted: false,
             pre: [
                 Delay::with_capacity((fs * MAX_PREDELAY_MS / 1000.0) as usize + 64),
                 Delay::with_capacity((fs * MAX_PREDELAY_MS / 1000.0) as usize + 64),
@@ -427,12 +468,10 @@ impl Reverb {
                 if self.net.lines() != n {
                     self.net = Fdn::new(n, (self.fs * 0.6) as usize, self.fs);
                 }
-                self.net.set_lengths(&self.lens[..n], &s.curve);
+                self.net.set_lengths_only(&self.lens[..n]);
             }
-            Arch::Plate => self.plate.set(size, s.density, &s.curve),
-            Arch::Spring => self
-                .spring
-                .set(s.tension, s.sections, 30.0 * size, &s.curve),
+            Arch::Plate => self.plate.set_shape(size, s.density),
+            Arch::Spring => self.spring.set_shape(s.tension, s.sections, 30.0 * size),
             Arch::Early => {}
         }
 
@@ -489,6 +528,106 @@ impl Reverb {
             0.0
         };
         self.built = Some(*s);
+
+        // The loss is fitted somewhere else. Everything above is cheap; that
+        // is not, and `docs/BENCHMARK.md` says by how much. Until the answer
+        // arrives the reverb keeps running with the filters it has, which is
+        // a decay curve taking a moment to take effect rather than a dropout.
+        //
+        // Except the first, which is done here and now: there is nothing to
+        // keep running with yet.
+        if self.fitted {
+            self.ask_for_fit(s);
+        } else {
+            self.fit_here(s);
+            self.fitted = true;
+        }
+    }
+
+    /// Fit in place. Only used once, when there is no previous answer to run
+    /// on --- see [`fitted`](Self::fitted).
+    fn fit_here(&mut self, s: &Settings) {
+        let n = self.net.lines().min(MAX_LINES);
+        let lens: Vec<f32> = (0..n).map(|i| self.net.len_of(i)).collect();
+        self.net.set_lengths(&lens, &s.curve);
+        self.plate.set(s.size.clamp(0.05, 4.0), s.density, &s.curve);
+        self.spring.set(
+            s.tension,
+            s.sections,
+            30.0 * s.size.clamp(0.05, 4.0),
+            &s.curve,
+        );
+        self.asked_for = s.curve;
+    }
+
+    /// Send the fit off, if the worker is free.
+    fn ask_for_fit(&mut self, s: &Settings) {
+        let mut lens = [0.0f32; MAX_LINES];
+        let n = self.net.lines().min(MAX_LINES);
+        for (i, l) in lens.iter_mut().enumerate().take(n) {
+            *l = self.net.len_of(i);
+        }
+        let job = Job {
+            fs: self.fs,
+            curve: s.curve,
+            lens,
+            lines: n,
+            plate_laps: self.plate.laps(),
+            spring_trip: self.spring.trip(),
+        };
+        if self.fitter.request(job) {
+            self.asked_for = s.curve;
+        }
+    }
+
+    /// The tail's spectrum, in decibels, on the same log-frequency grid the
+    /// curves use.
+    ///
+    /// Mapped by taking the **loudest** bin in each grid cell rather than the
+    /// mean. A reverb tail is noisy, and averaging a noisy spectrum into wide
+    /// low-frequency cells buries the ringing that is the whole point of
+    /// looking; the peak keeps it.
+    pub fn fill_spectrum(&mut self, out: &mut [f32]) {
+        let n = SPEC_N;
+        for i in 0..n {
+            let x = self.spec_ring[(self.spec_pos + i) % n];
+            // Hann, so a partial that sits between bins does not smear across
+            // the whole picture.
+            let w = 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / n as f32).cos();
+            self.fft_buf[i] = Complex::new(x * w, 0.0);
+        }
+        self.fft.process(&mut self.fft_buf);
+
+        let lo = super::loss::FIT_BOTTOM;
+        let hi = super::loss::FIT_TOP;
+        let bin_hz = self.fs / n as f32;
+        let points = out.len().max(2);
+        for (i, o) in out.iter_mut().enumerate() {
+            let t = i as f32 / (points - 1) as f32;
+            let f0 = lo * (hi / lo).powf((i as f32 - 0.5) / (points - 1) as f32);
+            let f1 = lo * (hi / lo).powf((i as f32 + 0.5) / (points - 1) as f32);
+            let _ = t;
+            let k0 = ((f0 / bin_hz).floor() as usize).max(1);
+            let k1 = ((f1 / bin_hz).ceil() as usize).min(n / 2 - 1).max(k0);
+            let mut peak = 0.0f32;
+            for c in &self.fft_buf[k0..=k1] {
+                peak = peak.max(c.norm_sqr());
+            }
+            // Scaled by the window's own gain, so a full-scale sine reads
+            // near zero rather than near minus six.
+            *o = 10.0 * (peak.max(1e-20) / (n as f32 * 0.25).powi(2)).log10();
+        }
+    }
+
+    /// Take a finished fit, if one is ready. Cheap, and safe to call every
+    /// block.
+    pub fn collect_fit(&mut self) {
+        if let Some(d) = self.fitter.collect() {
+            let curve = self.asked_for;
+            self.net.apply(&curve, &d.net);
+            self.plate.apply(&curve, &d.plate);
+            self.spring.apply(&curve, &d.spring);
+        }
     }
 
     /// The decay the running tank will actually produce at `f`, in seconds.
@@ -497,12 +636,18 @@ impl Reverb {
     pub fn realised_t60(&self, f: f32) -> f32 {
         match self.arch {
             Arch::Network => self.net.t60_at(f),
-            _ => f32::NAN,
+            Arch::Plate => self.plate.realised_t60(f),
+            Arch::Spring => self.spring.realised_t60(f),
+            // Nothing is ringing, so there is no decay to read. `NaN` breaks
+            // the drawn line rather than putting it at zero, which would
+            // read as "it decays instantly" instead of "there is no tail".
+            Arch::Early => f32::NAN,
         }
     }
 
     /// One block, in place.
     pub fn process(&mut self, s: &Settings, l: &mut [f32], r: &mut [f32]) {
+        self.collect_fit();
         if s.bypass {
             return;
         }
@@ -633,6 +778,10 @@ impl Reverb {
             let side = 0.5 * (ol - or) * s.width;
             ol = mid + side;
             or = mid - side;
+
+            // The wet signal, before the mix decides how much of it is heard.
+            self.spec_ring[self.spec_pos] = 0.5 * (ol + or);
+            self.spec_pos = (self.spec_pos + 1) % SPEC_N;
 
             let wet = s.mix * s.output;
             let dry = 1.0 - s.mix;

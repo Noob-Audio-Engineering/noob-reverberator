@@ -87,9 +87,44 @@ const bloom = useParam('bloom');
 const bloomTime = useParam('bloom_time');
 const bloomSwell = useParam('bloom_swell');
 
+/**
+ * What the running architecture's code never reads.
+ *
+ * Taken from the engine, not from what a mode happens to set: the spring's
+ * `set` takes tension, sections, size and the curve and nothing else, so
+ * density and modulation reach it nowhere; the early-only architecture
+ * produces silence from the tank, so the decay curve, the shift, the choir
+ * and the era all act on nothing.
+ *
+ * Bloom, Tape, Shape and Dynamics are **not** here. They work on every
+ * architecture --- Concert Hall simply has them at zero --- and dimming a
+ * control that works is worse than leaving it plain.
+ */
+const inert = computed(() => {
+  const a = arch.value;
+  const early = a === 'early';
+  const spring = a === 'spring';
+  return {
+    curve: early,
+    lines: a !== 'network',
+    density: spring || early,
+    size: early,
+    modulation: spring || early,
+    spring: !spring,
+    shift: early,
+    choir: early,
+    era: early,
+  };
+});
+
 const list = modes();
 const modeNames = list.map((x) => x.name);
-const current = computed(() => list[Math.round(mode.value ?? 0)] ?? {});
+// `mode.index` and not `mode.value`: a parameter handle is a `reactive`
+// object whose computed fields are already unwrapped, so `.value` on one is
+// `undefined`. It read as index nought, so the architecture was always
+// "network" --- the mode strip changed the sound and the panel never noticed,
+// which meant the Spring controls stayed dimmed while the spring was running.
+const current = computed(() => list[mode.index ?? 0] ?? {});
 const arch = computed(() => current.value.arch ?? 'network');
 // Only the bands that exist. There are still six parameter slots underneath
 // --- a host stores automation by index, so the list cannot grow --- but a
@@ -136,8 +171,20 @@ const arch = computed(() => current.value.arch ?? 'network');
       <Panel title="Space" :hint="arch">
         <div class="flex flex-wrap items-end gap-1">
           <Knob :p="decay" :size="44" label="Decay" />
-          <Knob :p="size" :size="40" label="Size" />
-          <Knob :p="density" :size="40" label="Density" />
+          <Knob
+            :p="size"
+            :size="40"
+            label="Size"
+            :disabled="inert.size"
+            :class="inert.size ? 'pointer-events-none opacity-45' : ''"
+          />
+          <Knob
+            :p="density"
+            :size="40"
+            label="Density"
+            :disabled="inert.density"
+            :class="inert.density ? 'pointer-events-none opacity-45' : ''"
+          />
           <Knob :p="attack" :size="40" label="Attack" />
           <Knob :p="predelay" :size="40" label="Pre" />
           <Knob :p="width" :size="40" label="Width" />
@@ -147,7 +194,12 @@ const arch = computed(() => current.value.arch ?? 'network');
         </div>
       </Panel>
 
-      <Panel title="Modulation" hint="sweep to wander">
+      <Panel
+        title="Modulation"
+        hint="sweep to wander"
+        :inert="inert.modulation"
+        inert-reason="this architecture has no modulator"
+      >
         <div class="flex items-end gap-1">
           <Knob :p="modRate" :size="40" label="Rate" />
           <Knob :p="modDepth" :size="40" label="Depth" />
@@ -168,7 +220,12 @@ const arch = computed(() => current.value.arch ?? 'network');
         </div>
       </Panel>
 
-      <Panel title="Shift" hint="into the feedback">
+      <Panel
+        title="Shift"
+        hint="into the feedback"
+        :inert="inert.shift"
+        inert-reason="there is no tail to transpose"
+      >
         <div class="flex items-end gap-1">
           <Knob :p="shift" :size="40" label="Interval" />
           <Knob :p="shiftMix" :size="40" label="Amount" />
@@ -187,13 +244,23 @@ const arch = computed(() => current.value.arch ?? 'network');
         <Knob :p="shapeHold" :size="40" label="Time" />
       </Panel>
 
-      <Panel title="Era" hint="converters, not topology">
+      <Panel
+        title="Era"
+        hint="converters, not topology"
+        :inert="inert.era"
+        inert-reason="it colours the tank, and this one is silent"
+      >
         <Segmented :p="era" :labels="m.eras ?? []" class="mb-2 text-[9px]" />
         <Knob :p="eraAmount" :size="40" label="Amount" />
       </Panel>
 
-      <Panel title="Spring" :hint="arch === 'spring' ? 'dispersion, not density' : 'for the spring modes'">
-        <div class="flex items-end gap-1" :class="arch === 'spring' ? '' : 'opacity-40'">
+      <Panel
+        title="Spring"
+        hint="dispersion, not density"
+        :inert="inert.spring"
+        inert-reason="only the spring architecture reads these"
+      >
+        <div class="flex items-end gap-1">
           <Knob :p="tension" :size="40" label="Tension" />
           <Knob :p="sections" :size="40" label="Sections" />
         </div>
@@ -210,7 +277,12 @@ const arch = computed(() => current.value.arch ?? 'network');
         </div>
       </Panel>
 
-      <Panel title="Choir" hint="vowels on the tail">
+      <Panel
+        title="Choir"
+        hint="vowels on the tail"
+        :inert="inert.choir"
+        inert-reason="there is no tail to sing"
+      >
         <div class="flex flex-wrap items-end gap-1">
           <Knob :p="choirAmount" :size="40" label="Amount" />
           <Knob :p="choirVowel" :size="40" label="Vowel" />

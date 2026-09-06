@@ -23,7 +23,7 @@
 
 use super::decay::Curve;
 use super::delay::{Allpass, Delay};
-use super::loss::Loss;
+use super::loss::{Fitted, Loss, Scratch};
 use super::modulate::Modulator;
 
 /// The lengths, in samples at 29.761 kHz, from Dattorro's paper. They are
@@ -55,6 +55,7 @@ pub struct Plate {
     ap1_len: [f32; 2],
     ap2_len: [f32; 2],
     loss: [Loss; 2],
+    scratch: Scratch,
     modu: [Modulator; 2],
     depth: f32,
     random: f32,
@@ -95,6 +96,7 @@ impl Plate {
             ap1_len: AP1_LENS,
             ap2_len: AP2_LENS,
             loss: [Loss::default(), Loss::default()],
+            scratch: Scratch::default(),
             modu: [Modulator::new(0x9E37_79B9), Modulator::new(0x85EB_CA6B)],
             depth: 0.0,
             random: 0.0,
@@ -118,11 +120,60 @@ impl Plate {
         }
     }
 
+    /// Apply a fit worked out elsewhere.
+    pub fn apply(&mut self, curve: &Curve, fits: &[Fitted; 2]) {
+        for (l, f) in self.loss.iter_mut().zip(fits.iter()) {
+            l.apply(self.fs, curve, f);
+        }
+    }
+
+    /// The decay this tank is actually producing at `f`, in seconds.
+    ///
+    /// Read back out of the loss filters that are running, the same way the
+    /// network's is --- and **as approximate as the fit is**, for the same
+    /// reason: the lap runs through allpasses whose delay depends on
+    /// frequency, and this uses the one number the fit was given. The
+    /// benchmark measures the tail itself and reports the difference, which
+    /// is around 0.3 octaves.
+    ///
+    /// Drawing it anyway is the point. A line that is honestly approximate
+    /// tells somebody where the tank is not doing what they asked; no line at
+    /// all tells them nothing.
+    pub fn realised_t60(&self, f: f32) -> f32 {
+        let laps = self.laps();
+        0.5 * (self.loss[0].t60(self.fs, laps[0] as usize, f)
+            + self.loss[1].t60(self.fs, laps[1] as usize, f))
+    }
+
+    /// One lap of each half, which is what a fit for this tank is against.
+    pub fn laps(&self) -> [f32; 2] {
+        let mut out = [0.0f32; 2];
+        for (i, o) in out.iter_mut().enumerate() {
+            *o = self.len1[i]
+                + self.len2[i]
+                + group_delay(self.ap1_len[i], self.ap1[i].gain())
+                + group_delay(self.ap2_len[i], self.ap2[i].gain());
+        }
+        out
+    }
+
     /// Set the tank's size and diffusion, and refit its loss to the curve.
     ///
     /// `size` scales every length; at 1.0 it is the plate the numbers
     /// describe.
     pub fn set(&mut self, size: f32, diffusion: f32, curve: &Curve) {
+        self.set_shape(size, diffusion);
+        let laps = self.laps();
+        let mut sc = std::mem::take(&mut self.scratch);
+        for (l, lap) in self.loss.iter_mut().zip(laps.iter()) {
+            l.fit(self.fs, *lap as usize, curve, &mut sc);
+        }
+        self.scratch = sc;
+    }
+
+    /// The geometry only, without fitting anything --- for the caller having
+    /// the fit done off the audio thread.
+    pub fn set_shape(&mut self, size: f32, diffusion: f32) {
         let k = self.fs / REF_FS * size.clamp(0.05, 4.0);
         self.scale = k;
         let d = diffusion.clamp(0.0, 1.0);
@@ -137,39 +188,8 @@ impl Plate {
             // The first allpass of each half is the modulated one, and its
             // gain is negative in the published topology: that sign is what
             // makes the decay smooth rather than fluttering.
-            let g1 = -0.7 * (0.3 + d * 0.7);
-            let g2 = 0.5 * (0.3 + d * 0.7);
-            self.ap1[i].set(self.ap1_len[i], g1);
-            self.ap2[i].set(self.ap2_len[i], g2);
-            // How long the lap really is, which is not the sum of the line
-            // lengths. An allpass of line length `L` and gain `g` delays by
-            // `L·(1+g)/(1−g)` at the bottom of the band, not by `L`: at
-            // `g = 0.4` that is more than twice as long, and at a negative
-            // gain it is a fraction. Fitting the loss to the sum of the raw
-            // lengths therefore asks for too little loss per second, and the
-            // tank rings long --- measured at 0.32 octaves, a quarter again
-            // too long, at 4 kHz.
-            //
-            // It is still an approximation, and the honest size of it is
-            // worth stating. An allpass's group delay is not one number: it
-            // swings around its line length with frequency, reaching
-            // `L(1+g)/(1−g)` at the bottom and `L(1−g)/(1+g)` at the top, and
-            // averaging to `L` over the band. Using the raw lengths leaves the
-            // tank 0.32 octaves long at 4 kHz; using the value at DC, as here,
-            // leaves it up to 0.20 octaves *short* in the middle. Neither is
-            // right, because no single number is: a scalar trip cannot express
-            // a delay that depends on frequency.
-            //
-            // I have taken the smaller worst case and published it rather than
-            // fitting a fudge factor to the measurements, which would make the
-            // number look better without making the tank do what it says. The
-            // network architectures do not have this problem --- their loops
-            // are plain delay lines --- and they measure inside 0.075 octaves.
-            let lap = self.len1[i]
-                + self.len2[i]
-                + group_delay(self.ap1_len[i], g1)
-                + group_delay(self.ap2_len[i], g2);
-            self.loss[i].fit(self.fs, lap as usize, curve);
+            self.ap1[i].set(self.ap1_len[i], -0.7 * (0.3 + d * 0.7));
+            self.ap2[i].set(self.ap2_len[i], 0.5 * (0.3 + d * 0.7));
         }
     }
 

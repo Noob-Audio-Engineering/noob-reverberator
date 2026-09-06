@@ -17,7 +17,7 @@
 
 use super::decay::Curve;
 use super::delay::Delay;
-use super::loss::Loss;
+use super::loss::{Fitted, Loss, Scratch};
 
 /// The most lines a tank can have. Sixteen: past that the echo density gained
 /// per line falls off while the cost does not, and the modes that want more
@@ -33,6 +33,9 @@ pub struct Fdn {
     read_at: Vec<f32>,
     /// Scratch, so the mix does not allocate.
     buf: Vec<f32>,
+    /// The fit's workspace, shared by every line because they are fitted one
+    /// after another.
+    scratch: Scratch,
     n: usize,
     fs: f32,
 }
@@ -47,6 +50,7 @@ impl Fdn {
             len: vec![max_len as f32 * 0.5; n],
             read_at: vec![max_len as f32 * 0.5; n],
             buf: vec![0.0; n],
+            scratch: Scratch::default(),
             n,
             fs,
         }
@@ -65,6 +69,24 @@ impl Fdn {
         }
     }
 
+    /// Apply a fit that was worked out elsewhere. Cheap, and it keeps the
+    /// filters' state, so the tail does not restart.
+    pub fn apply(&mut self, curve: &Curve, fits: &[Fitted]) {
+        for (l, f) in self.loss[..self.n].iter_mut().zip(fits.iter()) {
+            l.apply(self.fs, curve, f);
+        }
+    }
+
+    /// Set the line lengths without touching the loss, for the caller that is
+    /// having the fit done somewhere else.
+    pub fn set_lengths_only(&mut self, lengths: &[f32]) {
+        for i in 0..self.n {
+            let cap = self.lines[i].capacity() as f32 - 4.0;
+            self.len[i] = lengths[i.min(lengths.len() - 1)].clamp(4.0, cap);
+            self.read_at[i] = self.len[i];
+        }
+    }
+
     /// Set the line lengths, in samples, and refit every loss filter to the
     /// curve.
     ///
@@ -77,14 +99,14 @@ impl Fdn {
             let cap = self.lines[i].capacity() as f32 - 4.0;
             self.len[i] = lengths[i.min(lengths.len() - 1)].clamp(4.0, cap);
             self.read_at[i] = self.len[i];
-            self.loss[i].fit(self.fs, self.len[i] as usize, curve);
+            self.loss[i].fit(self.fs, self.len[i] as usize, curve, &mut self.scratch);
         }
     }
 
     /// Refit the loss filters without moving the lines.
     pub fn refit(&mut self, curve: &Curve) {
         for i in 0..self.n {
-            self.loss[i].fit(self.fs, self.len[i] as usize, curve);
+            self.loss[i].fit(self.fs, self.len[i] as usize, curve, &mut self.scratch);
         }
     }
 

@@ -23,9 +23,19 @@ produce beside what you asked for.
 Click the curve to put a band where you want it; the shape it starts as depends
 on where you clicked, because somebody reaching for the bottom or the top of
 the spectrum almost always wants a shelf. Drag it to shape it, double-click or
-right-click to take it away. There are six parameter slots underneath — a host
-stores automation by index, so the list cannot grow when you click — but a slot
-nobody is using is not a control, and it is not on the screen.
+right-click to take it away. Each band has its own colour, spaced by the golden
+angle so that neighbours — the pairs anybody actually compares — stay far apart
+in hue however many are on screen. **Up to thirty-two.**
+
+Under the curve, the tail's own spectrum, in its own strip with its own scale.
+Not scaled onto the decay axis, which would be a lie: that axis is seconds and
+this is decibels. It shares the frequency axis, which is what makes it readable
+against the curve, and says nothing about the other one.
+
+Controls the running architecture never reads are dimmed and unreachable, with
+the reason in the panel header — the spring's tension on a plate, the decay
+curve on the early-reflections-only mode. Controls that are merely *at zero*
+are not dimmed: Bloom on Concert Hall works the moment it is turned up.
 
 ## Install it
 

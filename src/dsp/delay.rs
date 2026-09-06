@@ -151,6 +151,11 @@ impl Allpass {
         self.len
     }
 
+    /// This stage's gain, for a caller working out how long a lap really is.
+    pub fn gain(&self) -> f32 {
+        self.gain
+    }
+
     /// How long a delay this stage can hold.
     pub fn capacity(&self) -> usize {
         self.line.capacity()

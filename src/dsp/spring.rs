@@ -28,7 +28,7 @@
 
 use super::decay::Curve;
 use super::delay::Delay;
-use super::loss::Loss;
+use super::loss::{Fitted, Loss, Scratch};
 
 /// The most allpass sections one spring may have.
 pub const MAX_SECTIONS: usize = 160;
@@ -42,6 +42,10 @@ struct Ap1 {
 }
 
 impl Ap1 {
+    fn a(&self) -> f32 {
+        self.a
+    }
+
     #[inline]
     fn process(&mut self, x: f32) -> f32 {
         let y = self.a * (x - self.y1) + self.x1;
@@ -57,6 +61,7 @@ pub struct Spring {
     line: Delay,
     len: f32,
     loss: Loss,
+    scratch: Scratch,
     fs: f32,
     fb: f32,
 }
@@ -70,6 +75,7 @@ impl Spring {
             line: Delay::with_capacity(cap),
             len: fs * 0.03,
             loss: Loss::default(),
+            scratch: Scratch::default(),
             fs,
             fb: 0.0,
         }
@@ -84,11 +90,38 @@ impl Spring {
         self.fb = 0.0;
     }
 
+    /// Apply a fit worked out elsewhere.
+    pub fn apply(&mut self, curve: &Curve, f: &Fitted) {
+        self.loss.apply(self.fs, curve, f);
+    }
+
+    /// The decay this coil is actually producing at `f`, in seconds. As
+    /// approximate as the fit is --- the cascade's delay depends on frequency
+    /// and this uses the single number the fit was given.
+    pub fn realised_t60(&self, f: f32) -> f32 {
+        self.loss.t60(self.fs, self.trip() as usize, f)
+    }
+
+    /// One trip, which is what a fit for this coil is against.
+    pub fn trip(&self) -> f32 {
+        let a = self.chain[0].a();
+        self.len + self.used as f32 * (1.0 + a) / (1.0 - a)
+    }
+
     /// `tension` sets how strong the dispersion is --- a tight spring chirps
     /// less and sounds brighter, a slack one sweeps further. `sections` is how
     /// long the sweep lasts. `delay_ms` is the length of one trip down the
     /// coil.
     pub fn set(&mut self, tension: f32, sections: usize, delay_ms: f32, curve: &Curve) {
+        self.set_shape(tension, sections, delay_ms);
+        let trip = self.trip();
+        let mut sc = std::mem::take(&mut self.scratch);
+        self.loss.fit(self.fs, trip as usize, curve, &mut sc);
+        self.scratch = sc;
+    }
+
+    /// The coil only, without fitting anything.
+    pub fn set_shape(&mut self, tension: f32, sections: usize, delay_ms: f32) {
         // Below zero the cascade delays the *top* of the band instead, which
         // is a chirp sweeping the wrong way and not a spring.
         let a = tension.clamp(0.05, 0.95);
@@ -98,13 +131,6 @@ impl Spring {
         }
         let cap = self.line.capacity() as f32 - 8.0;
         self.len = (delay_ms.max(1.0) * self.fs / 1000.0).clamp(8.0, cap);
-        // The cascade's own delay is part of the trip: each first-order
-        // section delays by about `(1+a)/(1−a)` samples at the bottom of the
-        // band, and a hundred of them is not a rounding error. Leaving it out
-        // makes the loop shorter than the fit thinks and the decay too long,
-        // which is the same fault the plate had.
-        let cascade = self.used as f32 * (1.0 + a) / (1.0 - a);
-        self.loss.fit(self.fs, (self.len + cascade) as usize, curve);
     }
 
     #[inline]

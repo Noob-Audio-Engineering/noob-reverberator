@@ -53,6 +53,29 @@
 use super::decay::{Curve, MAX_BANDS, Shape};
 use super::svf::{Kind, Svf};
 
+/// What a fit worked out, and all a caller needs to reproduce it.
+///
+/// Separated from the filters so the **expensive half can run somewhere
+/// else**. Working out these numbers costs milliseconds; turning them into
+/// filters costs microseconds, and only the second half has to happen where
+/// the audio is.
+#[derive(Debug, Clone, Copy)]
+pub struct Fitted {
+    used: [usize; MAX_BANDS],
+    th: [f32; NP],
+    n: usize,
+}
+
+impl Default for Fitted {
+    fn default() -> Self {
+        Fitted {
+            used: [0; MAX_BANDS],
+            th: [0.0; NP],
+            n: 0,
+        }
+    }
+}
+
 /// The per-trip loss for one line.
 #[derive(Debug, Clone)]
 pub struct Loss {
@@ -66,6 +89,46 @@ pub struct Loss {
     /// Which drawn bands are tilts, so `process` knows to run the second slot.
     tilt: [bool; MAX_BANDS],
     active: usize,
+}
+
+/// Everything the fit works in, owned by whoever is doing the fitting.
+///
+/// **Not by the filter.** These used to be `vec!`s inside `fit`, which meant
+/// allocating on the audio thread every time a control moved --- and the
+/// Jacobian clones the filter once per parameter per pass, so putting them
+/// inside it would have cloned twenty-five kilobytes seven hundred times per
+/// fit at thirty-two bands. The lines are fitted one after another, so one
+/// workspace serves all of them.
+#[derive(Debug, Clone)]
+pub struct Scratch {
+    grid: Vec<f32>,
+    target: Vec<f32>,
+    weight: Vec<f32>,
+    resid: Vec<f32>,
+    jac: Vec<[f32; NP]>,
+    hi: Vec<f32>,
+    /// The normal equations, cleared only where they are used.
+    ///
+    /// Built fresh inside the solve until the band limit went to thirty-two,
+    /// when zeroing a 65 by 66 matrix on every pass of every line became
+    /// six megabytes of writing per fit --- for a curve with three bands,
+    /// which touches a corner of it. The test suite went from two seconds to
+    /// eight, which is how it was noticed.
+    normal: Vec<[f64; NP + 1]>,
+}
+
+impl Default for Scratch {
+    fn default() -> Self {
+        Scratch {
+            grid: vec![0.0; GRID],
+            target: vec![0.0; GRID],
+            weight: vec![0.0; GRID],
+            resid: vec![0.0; GRID],
+            jac: vec![[0.0; NP]; GRID],
+            hi: vec![0.0; GRID],
+            normal: vec![[0.0; NP + 1]; NP],
+        }
+    }
 }
 
 impl Default for Loss {
@@ -102,7 +165,26 @@ impl Loss {
     /// it: measured over the sample rates and line lengths in the benchmark,
     /// letting the fit move Q takes the worst error at the hardest bend from
     /// 0.235 octaves of decay time to what `docs/BENCHMARK.md` reports.
-    pub fn fit(&mut self, fs: f32, m: usize, curve: &Curve) {
+    /// Work out and apply a fit in one go, for callers not doing it off the
+    /// audio thread.
+    pub fn fit(&mut self, fs: f32, m: usize, curve: &Curve, s: &mut Scratch) {
+        let f = self.solve_fit(fs, m, curve, s);
+        self.apply(fs, curve, &f);
+    }
+
+    /// Turn a worked-out fit into filters. Cheap: it is one filter design per
+    /// active band, and it keeps the filters' state, so it can run while the
+    /// tail is ringing.
+    pub fn apply(&mut self, fs: f32, curve: &Curve, f: &Fitted) {
+        self.build(fs, curve, &f.used, &f.th, f.n);
+    }
+
+    /// The expensive half: Gauss--Newton until the parameters stop moving.
+    ///
+    /// It borrows the filters to measure what they do, so it leaves them
+    /// holding the last thing it tried --- callers that care call
+    /// [`apply`](Self::apply) afterwards, which [`fit`](Self::fit) does.
+    pub fn solve_fit(&mut self, fs: f32, m: usize, curve: &Curve, s: &mut Scratch) -> Fitted {
         let trip = m as f32 / fs;
         let a0_db = -60.0 * trip / curve.base.max(super::decay::MIN_T60);
 
@@ -120,26 +202,27 @@ impl Loss {
             for f in &mut self.bands {
                 f.unity();
             }
-            return;
+            let mut th = [0.0f32; NP];
+            th[0] = a0_db;
+            return Fitted { used, th, n: 0 };
         }
 
         // The curve is drawn over the audible band, so that is where it is
         // fitted. Above 20 kHz no decay time is being promised, and fitting
         // there would spend the solve's accuracy on inaudible frequencies.
         let top = (fs * 0.45).min(FIT_TOP);
-        let grid: Vec<f32> = (0..GRID)
-            .map(|i| FIT_BOTTOM * (top / FIT_BOTTOM).powf(i as f32 / (GRID - 1) as f32))
-            .collect();
-        let target: Vec<f32> = grid
-            .iter()
-            .map(|&f| a0_db * (curve.base / curve.t60(f)))
-            .collect();
+        for i in 0..GRID {
+            s.grid[i] = FIT_BOTTOM * (top / FIT_BOTTOM).powf(i as f32 / (GRID - 1) as f32);
+            s.target[i] = a0_db * (curve.base / curve.t60(s.grid[i]));
+        }
         // Weighted by one over the loss being asked for, because what a person
         // hears is the decay *time*, and time goes as one over the loss. An
         // unweighted fit minimises decibels, which spends its accuracy at the
         // top of the band and leaves the bottom --- where a trip loses a
         // hundredth of a decibel --- free to be half again too long.
-        let w: Vec<f32> = target.iter().map(|t| 1.0 / t.abs().max(1e-4)).collect();
+        for i in 0..GRID {
+            s.weight[i] = 1.0 / s.target[i].abs().max(1e-4);
+        }
 
         // The parameters: a gain and a log-Q per band, then the flat term.
         let np = 2 * n + 1;
@@ -161,11 +244,10 @@ impl Loss {
         let mut best_th = th;
         for _ in 0..PASSES {
             self.build(fs, curve, &used, &th, n);
-            let mut resid = vec![0.0f32; GRID];
             let mut err = 0.0f32;
-            for (k, &f) in grid.iter().enumerate() {
-                resid[k] = (target[k] - self.loss_db(fs, f)) * w[k];
-                err += resid[k] * resid[k];
+            for k in 0..GRID {
+                s.resid[k] = (s.target[k] - self.loss_db(fs, s.grid[k])) * s.weight[k];
+                err += s.resid[k] * s.resid[k];
             }
             if err < best {
                 best = err;
@@ -178,7 +260,6 @@ impl Loss {
             // for it means a clamp or a degenerate Q shows up as a column of
             // zeros --- the solve then leaves that parameter alone instead of
             // taking a step into a wall.
-            let mut jac = vec![[0.0f32; NP]; GRID];
             for pi in 0..np {
                 let h = if pi < n { 0.25 } else { 0.05 };
                 let mut plus = th;
@@ -187,14 +268,17 @@ impl Loss {
                 minus[pi] -= h;
                 let mut probe = self.clone();
                 probe.build(fs, curve, &used, &plus, n);
-                let hi: Vec<f32> = grid.iter().map(|&f| probe.loss_db(fs, f)).collect();
+                for k in 0..GRID {
+                    s.hi[k] = probe.loss_db(fs, s.grid[k]);
+                }
                 probe.build(fs, curve, &used, &minus, n);
-                for (k, &f) in grid.iter().enumerate() {
-                    jac[k][pi] = w[k] * (hi[k] - probe.loss_db(fs, f)) / (2.0 * h);
+                for k in 0..GRID {
+                    s.jac[k][pi] =
+                        s.weight[k] * (s.hi[k] - probe.loss_db(fs, s.grid[k])) / (2.0 * h);
                 }
             }
 
-            let Some(step) = solve(&jac, &resid, np) else {
+            let Some(step) = solve(&s.jac, &s.resid, np, &mut s.normal) else {
                 break;
             };
             // Half a step. Gauss--Newton on a response that is not linear in
@@ -211,6 +295,11 @@ impl Loss {
         }
         // Whichever pass was actually best, not whichever was last.
         self.build(fs, curve, &used, &best_th, n);
+        Fitted {
+            used,
+            th: best_th,
+            n,
+        }
     }
 
     /// Realise a parameter vector as filters. Separated out because the fit
@@ -352,7 +441,7 @@ fn shape(
 /// two bands sitting exactly on top of each other, which returns `None` and
 /// leaves the previous gains standing rather than producing a filter nobody
 /// designed.
-fn solve(rows: &[[f32; NP]], rhs: &[f32], n: usize) -> Option<[f32; NP]> {
+fn solve(rows: &[[f32; NP]], rhs: &[f32], n: usize, a: &mut [[f64; NP + 1]]) -> Option<[f32; NP]> {
     // Normal equations in double precision. The rows are weighted by one over
     // the loss, which near the bottom of the band is a weight of a hundred
     // against a weight of one at the top; squaring that into a normal matrix
@@ -360,7 +449,14 @@ fn solve(rows: &[[f32; NP]], rhs: &[f32], n: usize) -> Option<[f32; NP]> {
     // In `f32` the solve returned a different answer for the same curve at a
     // different sample rate, which is a solver reporting on its own
     // conditioning rather than on the filters.
-    let mut a = [[0.0f64; NP + 1]; NP];
+    // Only the corner in use is cleared: `n` is two per active band plus one,
+    // and a curve with three bands has no business writing over a matrix
+    // sized for thirty-two.
+    for row in a.iter_mut().take(n) {
+        for v in row.iter_mut().take(n + 1) {
+            *v = 0.0;
+        }
+    }
     for (row, &r) in rows.iter().zip(rhs.iter()) {
         for i in 0..n {
             for j in 0..n {

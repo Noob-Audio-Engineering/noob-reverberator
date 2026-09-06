@@ -306,9 +306,15 @@ pub fn param_specs() -> Vec<ParamSpec> {
     v
 }
 
-/// Where each band sits before anybody moves it: spread over the band so six
-/// bands opened one after another do not all land on top of each other.
+/// Where each band sits before anybody moves it.
+///
+/// Spread geometrically over the audible band, so bands opened one after
+/// another do not land on top of each other --- and written as a formula
+/// rather than a table, because a table of thirty-two frequencies is
+/// thirty-two chances to fat-finger one and no way to notice.
 fn default_band_freq(i: usize) -> f32 {
-    const F: [f32; MAX_BANDS] = [120.0, 350.0, 900.0, 2_200.0, 5_000.0, 10_000.0];
-    F[i.min(MAX_BANDS - 1)]
+    const LO: f32 = 60.0;
+    const HI: f32 = 12_000.0;
+    let t = i as f32 / (MAX_BANDS - 1).max(1) as f32;
+    LO * (HI / LO).powf(t)
 }

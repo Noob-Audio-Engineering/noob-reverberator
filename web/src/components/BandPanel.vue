@@ -10,7 +10,14 @@
  */
 import { computed } from 'vue';
 import { Knob, Segmented } from '@noob-audio-engineering/noob-vst-webgui-framework/vue';
-import { activeBands, deleteBand, meta, selected, useBand } from '../composables/useReverb.js';
+import {
+  activeBands,
+  bandColour,
+  deleteBand,
+  meta,
+  selected,
+  useBand,
+} from '../composables/useReverb.js';
 
 const shapes = meta().band_shapes ?? ['Bell', 'Low Shelf', 'High Shelf', 'Notch', 'Tilt'];
 const band = computed(() => (selected.value ? useBand(selected.value) : null));
@@ -32,10 +39,14 @@ function step(by) {
 <template>
   <div
     v-if="band"
-    class="pointer-events-auto absolute bottom-2 left-1/2 flex -translate-x-1/2 items-end gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel-2)]/95 px-3 py-2 shadow-xl backdrop-blur"
+    class="pointer-events-auto absolute bottom-2 left-1/2 flex -translate-x-1/2 items-end gap-3 rounded-xl border bg-[var(--panel-2)]/95 px-3 py-2 shadow-xl backdrop-blur"
+    :style="{ borderColor: bandColour(selected) }"
   >
     <div class="flex flex-col gap-1">
-      <span class="text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--faint)]">
+      <span
+        class="text-[9px] font-semibold uppercase tracking-[0.08em]"
+        :style="{ color: bandColour(selected) }"
+      >
         Band {{ selected }}
       </span>
       <Segmented :p="band.shape" :labels="shapes" class="text-[9px]" />

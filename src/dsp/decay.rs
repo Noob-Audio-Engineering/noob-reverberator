@@ -67,11 +67,23 @@ impl Default for Band {
     }
 }
 
-/// The most bands the curve can carry. Six, which is what Pro-R offers and
-/// which is already more regions than a decay curve usually needs --- the
-/// limit exists so the fit runs in bounded time in the audio thread's
-/// preparation, not because a seventh would be wrong.
-pub const MAX_BANDS: usize = 6;
+/// The most bands the curve can carry.
+///
+/// # What the number costs, and what it does not
+///
+/// Nothing here iterates over thirty-two bands. The fit works on the bands
+/// that are **on and not flat**, so a curve with three bands costs what three
+/// bands cost whatever this constant says. What the constant does decide is
+/// how much is allocated once --- the filters on every delay line, and the
+/// fit's working buffers --- and how many parameters the host is shown, which
+/// is five per band.
+///
+/// The cost that does grow with how many are *used* is the fit: its parameter
+/// vector is two per active band plus one, and solving it is cubic in that.
+/// `docs/BENCHMARK.md` measures it, because a control that is fine with four
+/// bands and drops out with twenty is worse than one that never offered
+/// twenty.
+pub const MAX_BANDS: usize = 32;
 
 /// The whole curve: a base time, and bands that multiply it.
 #[derive(Debug, Clone, Copy)]

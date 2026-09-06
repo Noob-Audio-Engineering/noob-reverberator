@@ -1,7 +1,7 @@
 //! What the engine is asked to prove about itself.
 
 use super::decay::{Band, Curve, Shape};
-use super::loss::Loss;
+use super::loss::{Loss, Scratch};
 
 const FS: f32 = 48_000.0;
 
@@ -15,7 +15,8 @@ fn a_flat_curve_gives_the_base_decay_on_every_line() {
     };
     for m in [113usize, 691, 1789, 4093, 9973] {
         let mut loss = Loss::default();
-        loss.fit(FS, m, &curve);
+        let mut scratch = Scratch::default();
+        loss.fit(FS, m, &curve, &mut scratch);
         for f in [50.0f32, 200.0, 1_000.0, 5_000.0, 15_000.0] {
             let got = loss.t60(FS, m, f);
             let err = (got - curve.base).abs() / curve.base;
@@ -46,7 +47,8 @@ fn a_band_asking_for_more_decay_gets_more() {
     };
     let m = 1789;
     let mut loss = Loss::default();
-    loss.fit(FS, m, &curve);
+    let mut scratch = Scratch::default();
+    loss.fit(FS, m, &curve, &mut scratch);
     let at_band = loss.t60(FS, m, 200.0);
     let far_off = loss.t60(FS, m, 8_000.0);
     assert!(
@@ -81,7 +83,8 @@ fn the_realised_decay_follows_the_drawn_curve() {
     let mut worst_at = 0.0f32;
     for m in [401usize, 1237, 3571, 8191] {
         let mut loss = Loss::default();
-        loss.fit(FS, m, &curve);
+        let mut scratch = Scratch::default();
+        loss.fit(FS, m, &curve, &mut scratch);
         let mut f = super::loss::FIT_BOTTOM;
         while f < super::loss::FIT_TOP {
             let want = curve.t60(f);
