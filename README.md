@@ -16,9 +16,16 @@ DSP, the parameters and the page are all in this crate; everything reusable is
 in the framework.
 
 **You draw the decay time against frequency, and the network is fitted to it.**
-Not a high cut and a bass multiplier — a curve, with up to six bands, and the
-panel draws what the running filters actually produce beside what you asked
-for.
+Not a high cut and a bass multiplier — a curve you make by clicking on it, the
+way Noob-Q's is made, and the panel draws what the running filters actually
+produce beside what you asked for.
+
+Click the curve to put a band where you want it; the shape it starts as depends
+on where you clicked, because somebody reaching for the bottom or the top of
+the spectrum almost always wants a shelf. Drag it to shape it, double-click or
+right-click to take it away. There are six parameter slots underneath — a host
+stores automation by index, so the list cannot grow when you click — but a slot
+nobody is using is not a control, and it is not on the screen.
 
 ## Install it
 

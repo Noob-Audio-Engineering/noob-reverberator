@@ -170,3 +170,23 @@ body {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: #ede9fe;
 }
+
+/* The floating band panel's small buttons. */
+.band-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--dim);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  line-height: 14px;
+  cursor: pointer;
+}
+.band-btn:hover {
+  border-color: var(--accent-dim);
+  color: #cfc9e3;
+}
+.band-btn--warn:hover {
+  border-color: #f87171;
+  color: #fca5a5;
+}

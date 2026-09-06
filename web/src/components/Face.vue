@@ -22,10 +22,9 @@ import {
   useParam,
 } from '@noob-audio-engineering/noob-vst-webgui-framework/vue';
 import DecayCurve from './DecayCurve.vue';
-import BandStrip from './BandStrip.vue';
 import Panel from './Panel.vue';
 import Presets from './Presets.vue';
-import { bandCount, meta, modes, seconds } from '../composables/useReverb.js';
+import { meta, modes } from '../composables/useReverb.js';
 
 const bridge = useNoobVstWebguiFramework();
 const m = meta();
@@ -92,7 +91,10 @@ const list = modes();
 const modeNames = list.map((x) => x.name);
 const current = computed(() => list[Math.round(mode.value ?? 0)] ?? {});
 const arch = computed(() => current.value.arch ?? 'network');
-const bands = Array.from({ length: bandCount() }, (_, i) => i + 1);
+// Only the bands that exist. There are still six parameter slots underneath
+// --- a host stores automation by index, so the list cannot grow --- but a
+// slot nobody is using is not a control, and six empty strips ask somebody to
+// think about slots instead of about the reverb.
 </script>
 
 <template>
@@ -128,11 +130,6 @@ const bands = Array.from({ length: bandCount() }, (_, i) => i + 1);
     >
       <DecayCurve />
     </section>
-
-    <!-- The bands that shape it -->
-    <div class="grid shrink-0 grid-cols-6 gap-2">
-      <BandStrip v-for="n in bands" :key="n" :n="n" />
-    </div>
 
     <!-- Everything else -->
     <div class="grid shrink-0 grid-cols-4 gap-2">

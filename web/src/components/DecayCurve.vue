@@ -14,7 +14,17 @@
  */
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useStream } from '@noob-audio-engineering/noob-vst-webgui-framework/vue';
-import { curveFreq, hertz, seconds, useBands, meta } from '../composables/useReverb.js';
+import BandPanel from './BandPanel.vue';
+import {
+  createBandAt,
+  curveFreq,
+  deleteBand,
+  hertz,
+  meta,
+  seconds,
+  selected,
+  useBands,
+} from '../composables/useReverb.js';
 
 const canvas = ref(null);
 // A stream is an object with a `.data` frame on it, not a ref --- and it
@@ -45,6 +55,9 @@ const hovering = ref(-1);
 /// Where a drag began, for the shapes that move relatively rather than to a
 /// position.
 const dragFrom = { y: 0, mult: 1 };
+/// Set for a moment when every slot is in use, so the panel can say so
+/// instead of a click doing nothing.
+const full = ref(false);
 
 const m = meta();
 const F_LO = m.fit_bottom ?? 20;
@@ -181,12 +194,13 @@ function draw() {
     const hf = handleFreq(b);
     const x = xOf(hf);
     const y = yOf(valueAt(hf));
-    const r = i === dragging.value || i === hovering.value ? 9 : 6;
+    const isSel = selected.value === i + 1;
+    const r = i === dragging.value || i === hovering.value || isSel ? 9 : 6;
     g.beginPath();
     g.arc(x, y, r, 0, Math.PI * 2);
     g.fillStyle = accent;
     g.fill();
-    g.strokeStyle = '#0c0a14';
+    g.strokeStyle = isSel ? '#ffffff' : '#0c0a14';
     g.lineWidth = 2;
     g.stroke();
     g.fillStyle = '#0c0a14';
@@ -229,8 +243,43 @@ function pick(ev) {
 }
 
 function onDown(ev) {
-  const { i } = pick(ev);
-  if (i < 0) return;
+  const { x, y, i } = pick(ev);
+
+  // Nothing under the pointer: make a band here.
+  //
+  // This is the whole interaction, and it is Noob-Q's: a band is not a strip
+  // you fill in, it is a thing you put where you want it. Six strips sitting
+  // there whether or not they are used ask somebody to think about slots; a
+  // curve you click on asks them to think about the reverb.
+  if (i < 0) {
+    if (ev.button !== 0) return;
+    const f = fOf(x);
+    // The decay it would have here with no band, so the new band's multiplier
+    // puts the curve exactly under the pointer.
+    const base = valueAt(f);
+    const n = createBandAt(f, tOf(y) / Math.max(0.01, base));
+    if (n == null) {
+      full.value = true;
+      window.setTimeout(() => (full.value = false), 2200);
+      return;
+    }
+    // Carry straight on into a drag, so putting a band down and shaping it
+    // is one gesture rather than two.
+    dragging.value = n - 1;
+    dragFrom.y = ev.clientY;
+    dragFrom.mult = bands[n - 1].mult.plain;
+    bands[n - 1].freq.begin();
+    bands[n - 1].mult.begin();
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return;
+  }
+
+  // A band under the pointer: select it and start dragging. Removing it is a
+  // double click, which is its own handler --- `detail` is 0 on a pointer
+  // event, so counting clicks there never fires, and the second click of a
+  // double just made another band.
+  selected.value = i + 1;
   dragging.value = i;
   dragFrom.y = ev.clientY;
   dragFrom.mult = bands[i].mult.plain;
@@ -291,6 +340,18 @@ function onHover(ev) {
   hovering.value = pick(ev).i;
 }
 
+/// Right-click removes a band, for anybody who does not think to double-click.
+function onRightClick(ev) {
+  const { i } = pick(ev);
+  if (i >= 0) deleteBand(i + 1);
+}
+
+/// Double-click removes one too.
+function onDoubleClick(ev) {
+  const { i } = pick(ev);
+  if (i >= 0) deleteBand(i + 1);
+}
+
 const legend = computed(() =>
   hasRealised.value
     ? 'drawn against what the filters are doing'
@@ -305,7 +366,17 @@ const legend = computed(() =>
       class="h-full w-full nodrag"
       @pointerdown="onDown"
       @pointermove="onHover"
+      @contextmenu.prevent="onRightClick"
+      @dblclick="onDoubleClick"
     />
+    <BandPanel />
+    <!-- What the canvas does, said once, where somebody looking at it is. -->
+    <div class="pointer-events-none absolute left-3 top-2 text-[10px] text-[var(--faint)]">
+      <span v-if="full" class="text-amber-400">
+        every band is in use — remove one to add another
+      </span>
+      <span v-else>click to add a band · drag to shape it · double-click to remove</span>
+    </div>
     <div class="pointer-events-none absolute right-3 top-2 flex items-center gap-3 text-[10px]">
       <span class="flex items-center gap-1" style="color: var(--accent)">
         <span class="inline-block h-[2px] w-4" style="background: var(--accent)" />asked for
