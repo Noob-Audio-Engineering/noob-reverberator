@@ -31,6 +31,7 @@ pub mod spring;
 pub mod svf;
 pub mod sync;
 pub mod tape;
+pub mod trace;
 
 #[cfg(test)]
 mod tests;

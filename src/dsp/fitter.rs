@@ -45,16 +45,20 @@ pub struct Job {
     /// The network's line lengths, and how many are in use.
     pub lens: [f32; MAX_LINES],
     pub lines: usize,
-    /// One lap of each half of the plate, and one trip of the spring.
+    /// One lap of each half of the plate, and one trip of each coil of the
+    /// spring. The two coils are different lengths --- that is what a tank is
+    /// --- so one fit will not do for both: coefficients solved for one trip
+    /// applied to the other decay at the wrong rate, and measured, that put
+    /// the spring's tilt at 1.13 octaves where its curve drew 0.58.
     pub plate_laps: [f32; 2],
-    pub spring_trip: f32,
+    pub spring_trips: [f32; 2],
 }
 
 /// What comes back.
 pub struct Done {
     pub net: [Fitted; MAX_LINES],
     pub plate: [Fitted; 2],
-    pub spring: Fitted,
+    pub spring: [Fitted; 2],
 }
 
 pub struct Fitter {
@@ -84,7 +88,7 @@ impl Fitter {
                 // The worker's own filters, used only to measure with.
                 let mut net: Vec<Loss> = vec![Loss::default(); MAX_LINES];
                 let mut plate = [Loss::default(), Loss::default()];
-                let mut spring = Loss::default();
+                let mut spring = [Loss::default(), Loss::default()];
                 let mut scratch = Scratch::default();
                 // Ends when the sender is dropped, which is when the plug-in
                 // instance goes away.
@@ -92,7 +96,7 @@ impl Fitter {
                     let mut out = Done {
                         net: [Fitted::default(); MAX_LINES],
                         plate: [Fitted::default(); 2],
-                        spring: Fitted::default(),
+                        spring: [Fitted::default(); 2],
                     };
                     let lines = job.lines.min(MAX_LINES);
                     for (i, (l, o)) in net[..lines]
@@ -110,12 +114,14 @@ impl Fitter {
                             &mut scratch,
                         );
                     }
-                    out.spring = spring.solve_fit(
-                        job.fs,
-                        job.spring_trip as usize,
-                        &job.curve,
-                        &mut scratch,
-                    );
+                    for (i, (c, o)) in spring.iter_mut().zip(out.spring.iter_mut()).enumerate() {
+                        *o = c.solve_fit(
+                            job.fs,
+                            job.spring_trips[i] as usize,
+                            &job.curve,
+                            &mut scratch,
+                        );
+                    }
                     // Dropped rather than queued if nobody has collected the
                     // last one: the newer answer is the one worth having.
                     let _ = done_tx.try_send(out);

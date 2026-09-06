@@ -302,7 +302,9 @@ pub struct Reverb {
     arch: Arch,
     net: Fdn,
     plate: Plate,
-    spring: Spring,
+    /// Two coils of different lengths. See the `Arch::Spring` arm of
+    /// `process` for why there are two.
+    spring: [Spring; 2],
     early: Early,
     diff: [Diffuser; 2],
     shift: [Shifter; 2],
@@ -362,6 +364,7 @@ pub struct Reverb {
 pub const SPEC_N: usize = 1024;
 
 use super::sync::MAX_PREDELAY_MS;
+use super::trace::{NoTap, Stage, Tap};
 
 impl Reverb {
     pub fn new(fs: f32) -> Self {
@@ -374,7 +377,7 @@ impl Reverb {
             arch: Arch::Network,
             net: Fdn::new(MAX_LINES, longest, fs),
             plate: Plate::new(fs),
-            spring: Spring::new(fs, 120.0),
+            spring: [Spring::new(fs, 120.0), Spring::new(fs, 120.0)],
             early: Early::new(fs, 400.0),
             diff: [Diffuser::new(6, 2_048, 1), Diffuser::new(6, 2_048, 2)],
             shift: [Shifter::new(32_768), Shifter::new(32_768)],
@@ -415,7 +418,9 @@ impl Reverb {
     pub fn clear(&mut self) {
         self.net.clear();
         self.plate.clear();
-        self.spring.clear();
+        for c in &mut self.spring {
+            c.clear();
+        }
         self.early.clear();
         for d in &mut self.diff {
             d.clear();
@@ -508,7 +513,15 @@ impl Reverb {
                 self.net.set_lengths_only(&self.lens[..n]);
             }
             Arch::Plate => self.plate.set_shape(size, s.density),
-            Arch::Spring => self.spring.set_shape(s.tension, s.sections, 30.0 * size),
+            Arch::Spring => {
+                self.spring[0].set_shape(s.tension, s.sections, 30.0 * size);
+                // Same tension, different length. A slacker second coil disperses
+                // more, so its trip varies more with frequency and one fit stops
+                // covering the band: at 0.93 tension the pair delivered 1.13
+                // octaves of tilt where the curve drew 0.58. Length alone scales
+                // the trip evenly, so both coils hold the curve.
+                self.spring[1].set_shape(s.tension, s.sections, 31.5 * size);
+            }
             Arch::Early => {}
         }
 
@@ -531,7 +544,9 @@ impl Reverb {
         let thick = s.thickness.clamp(0.0, 1.0);
         self.net.set_drive(thick);
         self.plate.set_drive(thick);
-        self.spring.set_drive(thick);
+        for c in &mut self.spring {
+            c.set_drive(thick);
+        }
         let far = s.distance.clamp(0.0, 1.0);
         let density = (s.density + far * (1.0 - s.density) * 0.7).clamp(0.0, 1.0);
         for d in &mut self.diff {
@@ -612,12 +627,12 @@ impl Reverb {
         let lens: Vec<f32> = (0..n).map(|i| self.net.len_of(i)).collect();
         self.net.set_lengths(&lens, &s.curve);
         self.plate.set(s.size.clamp(0.05, 4.0), s.density, &s.curve);
-        self.spring.set(
-            s.tension,
-            s.sections,
-            30.0 * s.size.clamp(0.05, 4.0),
-            &s.curve,
-        );
+        let size = s.size.clamp(0.05, 4.0);
+        // Both coils, each fitted for its own length --- the first fit is done
+        // in place and there is no reason for it to be the cheaper, wronger
+        // one.
+        self.spring[0].set(s.tension, s.sections, 30.0 * size, &s.curve);
+        self.spring[1].set(s.tension, s.sections, 31.5 * size, &s.curve);
         self.asked_for = s.curve;
     }
 
@@ -634,7 +649,7 @@ impl Reverb {
             lens,
             lines: n,
             plate_laps: self.plate.laps(),
-            spring_trip: self.spring.trip(),
+            spring_trips: [self.spring[0].trip(), self.spring[1].trip()],
         };
         if self.fitter.request(job) {
             self.asked_for = s.curve;
@@ -687,7 +702,9 @@ impl Reverb {
             let curve = self.asked_for;
             self.net.apply(&curve, &d.net);
             self.plate.apply(&curve, &d.plate);
-            self.spring.apply(&curve, &d.spring);
+            for (c, f) in self.spring.iter_mut().zip(d.spring.iter()) {
+                c.apply(&curve, f);
+            }
         }
     }
 
@@ -698,7 +715,7 @@ impl Reverb {
         match self.arch {
             Arch::Network => self.net.t60_at(f),
             Arch::Plate => self.plate.realised_t60(f),
-            Arch::Spring => self.spring.realised_t60(f),
+            Arch::Spring => self.spring[0].realised_t60(f),
             // Nothing is ringing, so there is no decay to read. `NaN` breaks
             // the drawn line rather than putting it at zero, which would
             // read as "it decays instantly" instead of "there is no tail".
@@ -707,7 +724,24 @@ impl Reverb {
     }
 
     /// One block, in place.
+    /// Render a block. This is the path the plug-in uses.
     pub fn process(&mut self, s: &Settings, l: &mut [f32], r: &mut [f32]) {
+        self.process_with(s, l, r, &mut NoTap);
+    }
+
+    /// The same, reporting what each stage handed on.
+    ///
+    /// `process` calls this with a tap whose methods are empty and whose type
+    /// is zero-sized, so the plug-in pays nothing: the calls and the
+    /// arithmetic feeding them are gone by the time the optimiser is done.
+    /// See [`super::trace`].
+    pub fn process_with<T: Tap>(
+        &mut self,
+        s: &Settings,
+        l: &mut [f32],
+        r: &mut [f32],
+        tap: &mut T,
+    ) {
         self.collect_fit();
         if s.bypass {
             return;
@@ -733,6 +767,7 @@ impl Reverb {
             // allows sixteen --- so it never touches music and only catches
             // what was already broken.
             let (dry_l, dry_r) = (sane(l[i]), sane(r[i]));
+            tap.at(Stage::Input, dry_l, dry_r);
 
             // Pre-delay first: it is the gap before the room answers, so
             // everything after it is the room.
@@ -742,6 +777,7 @@ impl Reverb {
                 self.pre[0].read(self.pre_len),
                 self.pre[1].read(self.pre_len),
             );
+            tap.at(Stage::PreDelay, pl, pr);
 
             // Bloom regenerates before the tank hears anything, so the tank's
             // input grows rather than the tail being faded in. That is why it
@@ -751,6 +787,7 @@ impl Reverb {
             } else {
                 (pl, pr)
             };
+            tap.at(Stage::Bloom, pl, pr);
 
             // The tape sits between the pre-delay and the tank, which is what
             // makes it a Magneto rather than an echo after a reverb: its
@@ -764,7 +801,10 @@ impl Reverb {
                 (pl, pr)
             };
 
+            tap.at(Stage::Tape, pl, pr);
+
             let (el, er) = self.early.process(0.5 * (pl + pr));
+            tap.at(Stage::Early, el, er);
 
             // Frozen: the tank is sealed and hears nothing new. Its own decay
             // still applies, so this is a very long tail rather than a hold,
@@ -783,6 +823,7 @@ impl Reverb {
                 }
             };
             let (pl, pr) = (sat(pl), sat(pr));
+            tap.at(Stage::TankIn, pl, pr);
             let (mut wl, mut wr) = match self.arch {
                 Arch::Network => {
                     let a = self.diff[0].process(pl * feed);
@@ -812,11 +853,26 @@ impl Reverb {
                 }
                 Arch::Plate => self.plate.process(0.5 * (pl + pr) * feed),
                 Arch::Spring => {
-                    let v = self.spring.process(0.5 * (pl + pr) * feed);
-                    (v, v)
+                    // **Two coils, because one is not a stereo reverb.** This
+                    // used to be `(v, v)`: the same sample on both sides, so
+                    // the spring modes had a width of exactly zero when every
+                    // other mode measured between 0.33 and 1.03, and the Width
+                    // control did nothing at all on them. The engine's own
+                    // stage trace is what showed it.
+                    //
+                    // A real tank carries two or three springs of *different
+                    // lengths* --- that is what a tank is --- so the second is
+                    // a twentieth longer and a little slacker. They share one
+                    // fit, which leaves the longer one decaying a few per cent
+                    // slower, and that is not an error: two springs of
+                    // different lengths do ring for different times.
+                    let x = 0.5 * (pl + pr) * feed;
+                    (self.spring[0].process(x), self.spring[1].process(x))
                 }
                 Arch::Early => (0.0, 0.0),
             };
+
+            tap.at(Stage::TankOut, wl, wr);
 
             // The transposed copy goes back in with the tail rather than
             // replacing it, so a shimmer still has a reverb under it.
@@ -831,9 +887,13 @@ impl Reverb {
             // made of resonances at fixed frequencies, and it is the dense
             // late energy that has something at all of them for those
             // resonances to find.
+            tap.at(Stage::Shift, wl, wr);
+
             let (wl, wr) = self.choir.process(wl, wr);
+            tap.at(Stage::Choir, wl, wr);
 
             let (cl, cr) = self.colour.process(wl, wr);
+            tap.at(Stage::Colour, cl, cr);
             let mut ol = cl + el * s.early_level;
             let mut or = cr + er * s.early_level;
 
@@ -871,6 +931,7 @@ impl Reverb {
             let side = 0.5 * (ol - or) * s.width;
             ol = mid + side;
             or = mid - side;
+            tap.at(Stage::Wet, ol, or);
 
             // The wet signal, before the mix decides how much of it is heard.
             self.spec_ring[self.spec_pos] = 0.5 * (ol + or);

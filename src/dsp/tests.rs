@@ -1399,7 +1399,7 @@ fn the_fit_is_the_same_wherever_it_is_done() {
             lens,
             lines: 4,
             plate_laps: [9_000.0, 9_400.0],
-            spring_trip: 1_600.0,
+            spring_trips: [1_600.0, 1_680.0],
         }),
         "the worker would not take the job"
     );
@@ -3294,4 +3294,92 @@ fn every_mode_is_true_to_its_name() {
          is {} at {:.1} s",
         longest.1, longest.0
     );
+}
+
+/// **A traced render has to be the same audio as an untraced one.**
+///
+/// The whole worth of a stage profile is that it describes the reverb the
+/// plug-in actually makes. Instrumentation that perturbs what it measures
+/// describes something else, and it would do it quietly --- every number in
+/// the report would still look reasonable.
+///
+/// Bit-for-bit, over every architecture, because there is no reason for a
+/// difference of any size: the taps only read.
+#[test]
+fn a_traced_render_is_the_same_audio_as_an_untraced_one() {
+    use super::engine::Reverb;
+    use super::mode::MODES;
+    use super::trace::{Stage, Trace};
+
+    const FS: f32 = 48_000.0;
+    let mut seen_any = false;
+
+    for (i, m) in MODES.iter().enumerate() {
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        s.mode = i;
+        s.mix = 0.5;
+
+        let n = (FS * 1.5) as usize;
+        let mut seed = 4242u32;
+        let input: Vec<f32> = (0..n)
+            .map(|k| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                if k < n / 3 {
+                    ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.4
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+
+        let run = |traced: bool| -> Vec<f32> {
+            let mut rev = Reverb::new(FS);
+            rev.configure(&s);
+            let mut l = input.clone();
+            let mut r = input.clone();
+            if traced {
+                let mut t = Trace::new();
+                rev.process_with(&s, &mut l, &mut r, &mut t);
+            } else {
+                rev.process(&s, &mut l, &mut r);
+            }
+            l
+        };
+
+        let plain = run(false);
+        let traced = run(true);
+        let differ = plain
+            .iter()
+            .zip(traced.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            differ, 0,
+            "{}: tracing changed {differ} samples, so the profile describes a \
+             reverb the plug-in does not make",
+            m.name
+        );
+
+        // And the profile has to have actually been filled in, or this test
+        // passes by tracing nothing at all.
+        let mut rev = Reverb::new(FS);
+        rev.configure(&s);
+        let mut t = Trace::new();
+        let (mut a, mut b) = (input.clone(), input.clone());
+        rev.process_with(&s, &mut a, &mut b, &mut t);
+        assert!(
+            t.level(Stage::Input).rms() > 1e-6,
+            "{}: nothing reached the input tap",
+            m.name
+        );
+        assert!(
+            t.level(Stage::Wet).rms() > 1e-9,
+            "{}: nothing reached the wet tap",
+            m.name
+        );
+        seen_any = true;
+    }
+    assert!(seen_any, "no mode was traced");
+    println!("  tracing is free of charge on all {} modes", MODES.len());
 }
