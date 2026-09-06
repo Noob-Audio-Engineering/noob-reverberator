@@ -74,6 +74,11 @@ pub fn bridge_meta(sr: f32, standalone: bool) -> Value {
         "band_shapes": params::BAND_SHAPE_NAMES,
         "shapes": shape::SHAPE_NAMES,
         "sync": sync::SYNC_NAMES,
+        // The vowels the choir sings between. The control is continuous on
+        // purpose --- Chorale's whole idea is sweeping from one to the next
+        // --- so these are names for the page to show and to jump to, not a
+        // step count that would take the sweep away.
+        "vowels": formant::VOWEL_NAMES,
         "eras": colour::ERA_NAMES,
         "presets": preset::factory_json(),
         // `set` is the mode. Without it the page could only tell the engine

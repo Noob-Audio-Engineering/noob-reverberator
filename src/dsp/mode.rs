@@ -327,7 +327,7 @@ pub static MODES: &[Mode] = &[
         tone: [hs(1500.0, 0.50), ls(80.0, 1.40), NO_TONE],
         ..base(
             "Cloud",
-            "Slowest to arrive, longest to leave, and dense all through.",
+            "Slow to arrive, long to leave, and dense all through.",
             Arch::Network,
         )
     },

@@ -78,6 +78,24 @@ const tapeDrive = useParam('tape_drive');
 
 const choirAmount = useParam('choir_amount');
 const choirVowel = useParam('choir_vowel');
+const vowels = m.vowels ?? [];
+// What the sweep is between, in words. A knob at 2.31 is somewhere between
+// "Ee" and "Oh" and the panel should say so rather than show a number whose
+// units are the index of a table the listener cannot see.
+const vowelNow = computed(() => {
+  const v = choirVowel.plain ?? 0;
+  const lo = Math.floor(v);
+  const hi = Math.min(lo + 1, vowels.length - 1);
+  if (!vowels.length) return '';
+  if (lo === hi || Math.abs(v - lo) < 0.02) return vowels[lo];
+  if (Math.abs(v - hi) < 0.02) return vowels[hi];
+  return `${vowels[lo]} to ${vowels[hi]}`;
+});
+function pickVowel(i) {
+  choirVowel.begin();
+  choirVowel.setPlain(i);
+  choirVowel.end();
+}
 const choirSpread = useParam('choir_spread');
 const choirResonance = useParam('choir_resonance');
 
@@ -294,9 +312,29 @@ const arch = computed(() => current.value.arch ?? 'network');
         :inert="inert.choir"
         inert-reason="there is no tail to sing"
       >
+        <!-- The vowel is a sweep, not a switch: Chorale's whole idea is
+             moving from one to the next, so the knob stays and these only
+             jump it to a whole one. Without them the control read "2.31" and
+             nothing on the panel said what a 2.31 sounds like. -->
+        <div class="mb-2 flex items-center gap-2">
+          <span class="text-[9px] uppercase tracking-[0.08em] text-[var(--faint)]">Vowel</span>
+          <div class="noob-vst-webgui-framework-segmented text-[9px]">
+            <button
+              v-for="(v, i) in vowels"
+              :key="v"
+              type="button"
+              class="noob-vst-webgui-framework-segment"
+              :class="{ 'is-on': Math.round(choirVowel.plain ?? 0) === i }"
+              @click="pickVowel(i)"
+            >
+              {{ v }}
+            </button>
+          </div>
+          <span class="text-[10px] text-[var(--faint)]">{{ vowelNow }}</span>
+        </div>
         <div class="flex flex-wrap items-end gap-1">
           <Knob :p="choirAmount" :size="40" label="Amount" />
-          <Knob :p="choirVowel" :size="40" label="Vowel" />
+          <Knob :p="choirVowel" :size="40" label="Sweep" />
           <Knob :p="choirSpread" :size="40" label="Size" />
           <Knob :p="choirResonance" :size="40" label="Resonance" />
         </div>

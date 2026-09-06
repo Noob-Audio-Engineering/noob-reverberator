@@ -3123,3 +3123,175 @@ fn every_mode_realises_the_tone_it_declares() {
         worst.0, worst.1
     );
 }
+
+/// **Is each mode true to the thing it is named after?**
+///
+/// Every other check here asks whether a mode does what its *table entry*
+/// says --- whether the engine delivers the numbers. This asks the harder
+/// question: whether those numbers add up to the thing on the label. A
+/// Shimmer that adds no octave is internally consistent and still a lie, and
+/// so is an Echoverb whose repeats cannot be counted or a Chorale that does
+/// not sing.
+///
+/// Only the claims a measurement can settle outright are here. "A hall with
+/// more air in it" is a judgement; "an octave is added to the tail" is a
+/// number. Where a claim is a superlative it is checked against the whole
+/// table, which is how Cloud was found claiming to be the slowest to arrive
+/// and the longest to leave while Supermassive was both.
+#[test]
+fn every_mode_is_true_to_its_name() {
+    use super::engine::Reverb;
+    use super::mode::MODES;
+
+    const FS: f32 = 48_000.0;
+    let at = |name: &str| MODES.iter().position(|m| m.name == name).expect(name);
+
+    let render = |i: usize, input: &[f32]| -> Vec<f32> {
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        s.mode = i;
+        s.mix = 1.0;
+        let mut rev = Reverb::new(FS);
+        rev.configure(&s);
+        let mut l = input.to_vec();
+        let mut r = input.to_vec();
+        rev.process(&s, &mut l, &mut r);
+        l.iter().zip(r.iter()).map(|(a, b)| 0.5 * (a + b)).collect()
+    };
+
+    // One bin of a Goertzel: how much of one frequency is in a signal.
+    let tone_at = |x: &[f32], f: f32| -> f32 {
+        let w = std::f32::consts::TAU * f / FS;
+        let (c, s) = (w.cos(), w.sin());
+        let (mut q1, mut q2) = (0.0f32, 0.0f32);
+        for &v in x {
+            let q0 = 2.0 * c * q1 - q2 + v;
+            q2 = q1;
+            q1 = q0;
+        }
+        let (re, im) = (q1 - c * q2, s * q2);
+        ((re * re + im * im).sqrt() / x.len() as f32).max(1e-12)
+    };
+
+    let n = (FS * 6.0) as usize;
+    let sine = |f: f32| -> Vec<f32> {
+        let mut v = vec![0.0f32; n];
+        let len = (FS * 0.5) as usize;
+        for (i, x) in v.iter_mut().enumerate().take(len) {
+            // Faded, so the burst's own edges do not spray energy across the
+            // spectrum and read as a pitch shift.
+            let e = (std::f32::consts::PI * i as f32 / len as f32).sin();
+            *x = e * e * (std::f32::consts::TAU * f * i as f32 / FS).sin();
+        }
+        v
+    };
+
+    // --- "an octave is added to the tail every time round the loop" ---
+    // and Undertow's "the same trick downwards".
+    let f0 = 440.0f32;
+    let tail_from = (FS * 1.0) as usize;
+    for (name, up) in [("Shimmer", true), ("Choir Loft", true), ("Undertow", false)] {
+        let out = render(at(name), &sine(f0));
+        let tail = &out[tail_from..];
+        let here = tone_at(tail, f0);
+        let there = tone_at(tail, if up { f0 * 2.0 } else { f0 * 0.5 });
+        let ratio = there / here;
+        assert!(
+            ratio > 0.1,
+            "{name} says it adds an octave {} and the tail has {ratio:.3} of the \
+             fundamental there, which is no octave at all",
+            if up { "up" } else { "down" }
+        );
+    }
+    // And a mode that claims no such thing must not have one, or the shifter
+    // is running where it was never asked for.
+    for name in ["Concert Hall", "Plate", "Room"] {
+        let out = render(at(name), &sine(f0));
+        let tail = &out[tail_from..];
+        let ratio = tone_at(tail, f0 * 2.0) / tone_at(tail, f0);
+        assert!(
+            ratio < 0.05,
+            "{name} claims no pitch shifting and put {ratio:.3} of an octave up in \
+             the tail"
+        );
+    }
+
+    // --- "the walls without the tail" and "barely a reverb" ---
+    let mut impulse = vec![0.0f32; n];
+    impulse[0] = 1.0;
+    let t60 =
+        |i: usize| super::measure::t60_in_band(&render(i, &impulse), FS, 1_000.0).unwrap_or(0.0);
+    for (name, longest) in [("Reflections", 0.25f32), ("Tight Ambience", 0.8)] {
+        let got = t60(at(name));
+        assert!(
+            got < longest,
+            "{name} says it has next to no tail and rings for {got:.2} s"
+        );
+    }
+
+    // --- the superlatives, against the whole table ---
+    //
+    // Supermassive claims to be the slowest to arrive and to take half a
+    // minute. Both are claims about *every other mode*, so both are checked
+    // against every other mode.
+    let mut slowest = (0.0f32, "");
+    let mut longest = (0.0f32, "");
+    for (i, m) in MODES.iter().enumerate() {
+        if m.attack > slowest.0 {
+            slowest = (m.attack, m.name);
+        }
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        let d = s.curve.t60(1_000.0);
+        if d > longest.0 {
+            longest = (d, m.name);
+        }
+    }
+    assert_eq!(
+        slowest.1, "Supermassive",
+        "Supermassive says it is the slowest to arrive and {} builds for longer",
+        slowest.1
+    );
+    assert_eq!(
+        longest.1, "Supermassive",
+        "Supermassive says it takes half a minute and {} rings for longer",
+        longest.1
+    );
+    assert!(
+        longest.0 > 20.0,
+        "Supermassive says half a minute and draws {:.1} s",
+        longest.0
+    );
+
+    // --- "driven into its own saturation" ---
+    // Measured as the wet level failing to keep up with the input, which a
+    // linear tank cannot do.
+    let noise = |gain: f32| -> Vec<f32> {
+        let mut v = vec![0.0f32; n];
+        let mut seed = 12345u32;
+        for x in v.iter_mut().take((FS * 0.5) as usize) {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *x = ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.5 * gain;
+        }
+        v
+    };
+    let squeeze = |name: &str| -> f32 {
+        let i = at(name);
+        let quiet = energy(&render(i, &noise(1.0)));
+        let loud = energy(&render(i, &noise(6.0)));
+        20.0 * ((loud / 6.0) / quiet.max(1e-9)).max(1e-9).log10()
+    };
+    let thick = squeeze("Thick Chamber");
+    let plain = squeeze("Chamber");
+    assert!(
+        thick < -0.3 && thick < plain - 0.25,
+        "Thick Chamber says it is driven into its own saturation and squeezes \
+         {thick:.2} dB against plain Chamber's {plain:.2} dB"
+    );
+
+    println!(
+        "  octaves, tails, superlatives and saturation all hold; slowest and longest \
+         is {} at {:.1} s",
+        longest.1, longest.0
+    );
+}
