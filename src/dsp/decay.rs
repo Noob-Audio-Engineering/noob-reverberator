@@ -134,11 +134,7 @@ impl Curve {
         let mut inv = 1.0f32;
         for b in &self.bands {
             if b.on {
-                let m = match b.shape {
-                    Shape::Notch => b.mult.min(1.0),
-                    _ => b.mult,
-                };
-                inv += (1.0 / m.max(0.01) - 1.0) * b.shape_at(f);
+                inv += b.loss_amount() * b.shape_at(f);
             }
         }
         // Below zero the loss would have changed sign --- the line would gain
@@ -207,6 +203,37 @@ impl Band {
         match self.shape {
             Shape::Notch => self.mult.min(1.0),
             _ => self.mult,
+        }
+    }
+
+    /// How much this band moves the **loss**, which is the quantity the bands
+    /// actually add up in. See [`Curve::t60`].
+    ///
+    /// # A bipolar band needs different arithmetic, and getting it wrong is
+    /// not obvious
+    ///
+    /// For a shape with one side, `1/mult − 1` is exactly right: at the centre
+    /// the shape is one, the loss is divided by `mult`, and the decay there is
+    /// `mult` times the base. Read the arithmetic and it is done.
+    ///
+    /// A tilt has no centre --- its shape runs from `−½` to `+½` --- so that
+    /// formula makes `mult` mean neither end. At four it gave lows of `0.73×`
+    /// and highs of `1.6×`: an end-to-end ratio of 2.2 from a control saying
+    /// four. Worse, a strong tilt the other way drove the loss **negative** at
+    /// one end and hit the clamp, so half the control's travel did the same
+    /// thing.
+    ///
+    /// Asking for the ratio between the *ends* to be `mult` and solving gives
+    /// `2(1 − mult) / (1 + mult)`, which lands in `(−2, 2)` for every positive
+    /// multiplier --- so it can never take the loss through zero, and the
+    /// number on the control is the ratio a person can hear between the two
+    /// ends of the band.
+    pub fn loss_amount(&self) -> f32 {
+        let m = self.centre_mult().max(0.01);
+        if self.shape.is_bipolar() {
+            2.0 * (1.0 - m) / (1.0 + m)
+        } else {
+            1.0 / m - 1.0
         }
     }
 

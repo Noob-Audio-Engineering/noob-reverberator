@@ -223,13 +223,20 @@ this is {:.1}% of the decay time.\n",
     );
     let _ = writeln!(
         out,
-        "The band sitting on a shelf's corner is the worst of them, and it reads **long**. \
-That is a property of the measurement rather than of the engine: a band-passed energy \
-decay is a sum of exponentials, and a T30 fitted to it leans towards the slowest of them, \
-because those are what is left by the time the curve has fallen thirty decibels. Where the \
-curve is steep, one octave holds decays a factor of two apart and the slow side wins. \
-Comparing against the curve averaged over the same octave --- which these rows do --- \
-corrects the centre of each band but not that bias.\n"
+        "The bands that read worst sit on a shelf's corner, and they read **long**. Part \
+of that is a property of the measurement: a band-passed energy decay is a sum of \
+exponentials, and a T30 fitted to it leans towards the slowest of them, because those are \
+what is left by the time the curve has fallen thirty decibels. Where the curve is steep, \
+one octave holds decays a factor of two apart and the slow side wins. These rows compare \
+against the curve averaged over the same octave, which corrects the centre of each band \
+but not that bias.\n\n\
+**More of it used to be the band-pass, and that was my ruler rather than the engine.** The \
+measurement first used two sections, and on a hard bend the neighbouring band's much \
+longer energy leaked through the skirts and was what the fit ended up reading --- on a \
+tail tilted four to one, the 500 Hz reading came out a full octave long. With four \
+sections the worst error over every curve here fell from 0.455 octaves to what the table \
+above says. The plate and spring figures did not move at all, which is the useful part: a \
+better ruler separated the engine's real limits from the ruler's own.\n"
     );
 }
 

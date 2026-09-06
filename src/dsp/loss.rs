@@ -150,11 +150,9 @@ impl Loss {
         let mut th = [0.0f32; NP];
         for j in 0..n {
             let b = &curve.bands[used[j]];
-            let m = match b.shape {
-                Shape::Notch => b.mult.min(1.0),
-                _ => b.mult,
-            };
-            th[j] = (a0_db * (1.0 / m.max(0.01) - 1.0)).clamp(-MAX_BAND_DB, MAX_BAND_DB);
+            // The same amount the curve is defined with, so the fit starts
+            // where the drawing says rather than somewhere near it.
+            th[j] = (a0_db * b.loss_amount()).clamp(-MAX_BAND_DB, MAX_BAND_DB);
             th[n + j] = 0.0; // log2 of the Q multiplier, starting at one
         }
         th[np - 1] = a0_db;

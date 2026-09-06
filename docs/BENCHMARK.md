@@ -21,38 +21,40 @@ The measurement this plug-in is about. A curve is drawn, an impulse is run throu
 
 | curve | band | drawn | measured | error |
 |---|---|---|---|---|
-| flat, 2 s | 125 Hz | 2.000 s | 2.012 s | 0.009 oct |
+| flat, 2 s | 125 Hz | 2.000 s | 2.019 s | 0.014 oct |
 | flat, 2 s | 250 Hz | 2.000 s | 1.997 s | 0.002 oct |
 | flat, 2 s | 500 Hz | 2.000 s | 2.001 s | 0.001 oct |
-| flat, 2 s | 1000 Hz | 2.000 s | 2.004 s | 0.003 oct |
-| flat, 2 s | 2000 Hz | 2.000 s | 2.002 s | 0.001 oct |
-| flat, 2 s | 4000 Hz | 2.000 s | 2.006 s | 0.005 oct |
-| flat, 2 s | 8000 Hz | 2.000 s | 2.002 s | 0.001 oct |
-| lows x1.5, highs x0.7 | 125 Hz | 2.884 s | 2.859 s | 0.013 oct |
-| lows x1.5, highs x0.7 | 250 Hz | 2.407 s | 2.447 s | 0.024 oct |
-| lows x1.5, highs x0.7 | 500 Hz | 2.056 s | 2.057 s | 0.001 oct |
-| lows x1.5, highs x0.7 | 1000 Hz | 2.002 s | 2.004 s | 0.001 oct |
-| lows x1.5, highs x0.7 | 2000 Hz | 1.969 s | 1.961 s | 0.006 oct |
-| lows x1.5, highs x0.7 | 4000 Hz | 1.762 s | 1.779 s | 0.014 oct |
-| lows x1.5, highs x0.7 | 8000 Hz | 1.474 s | 1.490 s | 0.016 oct |
-| lows x2, highs x0.5 | 125 Hz | 4.632 s | 4.641 s | 0.003 oct |
-| lows x2, highs x0.5 | 250 Hz | 3.360 s | 3.564 s | 0.085 oct |
-| lows x2, highs x0.5 | 500 Hz | 2.606 s | 2.629 s | 0.013 oct |
-| lows x2, highs x0.5 | 1000 Hz | 2.501 s | 2.501 s | 0.000 oct |
-| lows x2, highs x0.5 | 2000 Hz | 2.412 s | 2.401 s | 0.007 oct |
-| lows x2, highs x0.5 | 4000 Hz | 1.909 s | 2.007 s | 0.072 oct |
-| lows x2, highs x0.5 | 8000 Hz | 1.365 s | 1.415 s | 0.052 oct |
-| lows x4, highs x0.25 | 125 Hz | 9.740 s | 10.203 s | 0.067 oct |
-| lows x4, highs x0.25 | 250 Hz | 4.930 s | 6.760 s | 0.455 oct |
-| lows x4, highs x0.25 | 500 Hz | 3.194 s | 3.409 s | 0.094 oct |
-| lows x4, highs x0.25 | 1000 Hz | 2.987 s | 2.983 s | 0.002 oct |
-| lows x4, highs x0.25 | 2000 Hz | 2.708 s | 2.732 s | 0.012 oct |
-| lows x4, highs x0.25 | 4000 Hz | 1.580 s | 1.994 s | 0.336 oct |
-| lows x4, highs x0.25 | 8000 Hz | 0.860 s | 1.012 s | 0.235 oct |
+| flat, 2 s | 1000 Hz | 2.000 s | 2.005 s | 0.004 oct |
+| flat, 2 s | 2000 Hz | 2.000 s | 2.001 s | 0.001 oct |
+| flat, 2 s | 4000 Hz | 2.000 s | 2.008 s | 0.006 oct |
+| flat, 2 s | 8000 Hz | 2.000 s | 2.001 s | 0.001 oct |
+| lows x1.5, highs x0.7 | 125 Hz | 2.884 s | 2.882 s | 0.001 oct |
+| lows x1.5, highs x0.7 | 250 Hz | 2.407 s | 2.436 s | 0.017 oct |
+| lows x1.5, highs x0.7 | 500 Hz | 2.056 s | 2.046 s | 0.007 oct |
+| lows x1.5, highs x0.7 | 1000 Hz | 2.002 s | 2.007 s | 0.003 oct |
+| lows x1.5, highs x0.7 | 2000 Hz | 1.969 s | 1.971 s | 0.001 oct |
+| lows x1.5, highs x0.7 | 4000 Hz | 1.762 s | 1.784 s | 0.018 oct |
+| lows x1.5, highs x0.7 | 8000 Hz | 1.474 s | 1.473 s | 0.001 oct |
+| lows x2, highs x0.5 | 125 Hz | 4.632 s | 4.680 s | 0.015 oct |
+| lows x2, highs x0.5 | 250 Hz | 3.360 s | 3.440 s | 0.034 oct |
+| lows x2, highs x0.5 | 500 Hz | 2.606 s | 2.590 s | 0.009 oct |
+| lows x2, highs x0.5 | 1000 Hz | 2.501 s | 2.504 s | 0.002 oct |
+| lows x2, highs x0.5 | 2000 Hz | 2.412 s | 2.416 s | 0.002 oct |
+| lows x2, highs x0.5 | 4000 Hz | 1.909 s | 1.976 s | 0.050 oct |
+| lows x2, highs x0.5 | 8000 Hz | 1.365 s | 1.363 s | 0.002 oct |
+| lows x4, highs x0.25 | 125 Hz | 9.740 s | 10.095 s | 0.052 oct |
+| lows x4, highs x0.25 | 250 Hz | 4.930 s | 5.547 s | 0.170 oct |
+| lows x4, highs x0.25 | 500 Hz | 3.194 s | 3.176 s | 0.008 oct |
+| lows x4, highs x0.25 | 1000 Hz | 2.987 s | 2.985 s | 0.001 oct |
+| lows x4, highs x0.25 | 2000 Hz | 2.708 s | 2.741 s | 0.017 oct |
+| lows x4, highs x0.25 | 4000 Hz | 1.580 s | 1.799 s | 0.187 oct |
+| lows x4, highs x0.25 | 8000 Hz | 0.860 s | 0.854 s | 0.010 oct |
 
-**Worst across every curve and band: 0.455 octaves of decay time, at 250 Hz on "lows x4, highs x0.25".** An octave of error would be a decay twice as long as the one drawn; this is 37.1% of the decay time.
+**Worst across every curve and band: 0.187 octaves of decay time, at 4000 Hz on "lows x4, highs x0.25".** An octave of error would be a decay twice as long as the one drawn; this is 13.8% of the decay time.
 
-The band sitting on a shelf's corner is the worst of them, and it reads **long**. That is a property of the measurement rather than of the engine: a band-passed energy decay is a sum of exponentials, and a T30 fitted to it leans towards the slowest of them, because those are what is left by the time the curve has fallen thirty decibels. Where the curve is steep, one octave holds decays a factor of two apart and the slow side wins. Comparing against the curve averaged over the same octave --- which these rows do --- corrects the centre of each band but not that bias.
+The bands that read worst sit on a shelf's corner, and they read **long**. Part of that is a property of the measurement: a band-passed energy decay is a sum of exponentials, and a T30 fitted to it leans towards the slowest of them, because those are what is left by the time the curve has fallen thirty decibels. Where the curve is steep, one octave holds decays a factor of two apart and the slow side wins. These rows compare against the curve averaged over the same octave, which corrects the centre of each band but not that bias.
+
+**More of it used to be the band-pass, and that was my ruler rather than the engine.** The measurement first used two sections, and on a hard bend the neighbouring band's much longer energy leaked through the skirts and was what the fit ended up reading --- on a tail tilted four to one, the 500 Hz reading came out a full octave long. With four sections the worst error over every curve here fell from 0.455 octaves to what the table above says. The plate and spring figures did not move at all, which is the useful part: a better ruler separated the engine's real limits from the ruler's own.
 
 ## Every mode, at its own settings
 
@@ -60,32 +62,32 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 
 | mode | architecture | drawn | measured at 1 kHz | worst band |
 |---|---|---|---|---|
-| Concert Hall | network | 3.20 s | 3.21 s | 0.013 oct at 125 Hz |
-| Bright Hall | network | 3.00 s | 3.00 s | 0.017 oct at 125 Hz |
-| Room | network | 1.40 s | 1.40 s | 0.013 oct at 125 Hz |
-| Chamber | network | 2.20 s | 2.20 s | 0.013 oct at 500 Hz |
-| Plate | plate | 2.40 s | 1.98 s | 0.295 oct at 500 Hz |
-| Small Plate | plate | 1.20 s | 1.04 s | 0.296 oct at 125 Hz |
+| Concert Hall | network | 3.20 s | 3.21 s | 0.019 oct at 125 Hz |
+| Bright Hall | network | 3.00 s | 3.00 s | 0.023 oct at 125 Hz |
+| Room | network | 1.40 s | 1.40 s | 0.020 oct at 125 Hz |
+| Chamber | network | 2.20 s | 2.20 s | 0.017 oct at 500 Hz |
+| Plate | plate | 2.40 s | 1.98 s | 0.300 oct at 500 Hz |
+| Small Plate | plate | 1.20 s | 1.05 s | 0.284 oct at 125 Hz |
 | Spring | spring | 1.80 s | 1.44 s | 0.327 oct at 125 Hz |
 | Reflections | early | 0.35 s | no tail to measure | — |
-| Ambience | network | 1.10 s | 1.10 s | 0.080 oct at 125 Hz |
-| Cloud | network | 12.00 s | 12.00 s | 0.002 oct at 125 Hz |
-| Echoverb | network | 9.00 s | 9.00 s | 0.003 oct at 125 Hz |
+| Ambience | network | 1.10 s | 1.10 s | 0.072 oct at 125 Hz |
+| Cloud | network | 12.00 s | 12.00 s | 0.001 oct at 125 Hz |
+| Echoverb | network | 9.00 s | 8.99 s | 0.005 oct at 125 Hz |
 | Shimmer | network | 4.00 s | 4.00 s | 0.001 oct at 4000 Hz |
-| Undertow | network | 5.00 s | 5.00 s | 0.002 oct at 125 Hz |
-| Gated | network | 1.60 s | 1.61 s | 0.007 oct at 4000 Hz |
-| Reverse | network | 2.00 s | 2.00 s | 0.008 oct at 125 Hz |
-| Swell | network | 6.00 s | 6.00 s | 0.019 oct at 125 Hz |
-| Nineteen Seventy Nine | network | 3.50 s | 2.92 s | 0.260 oct at 1000 Hz |
-| Nineteen Eighty Four | plate | 2.60 s | 2.10 s | 0.322 oct at 4000 Hz |
-| Magneto | network | 2.20 s | 2.48 s | 0.234 oct at 500 Hz |
-| Chorale | network | 7.00 s | 7.01 s | 0.006 oct at 125 Hz |
-| Choir Loft | network | 9.00 s | 9.01 s | 0.003 oct at 125 Hz |
-| Tape Chamber | network | 2.00 s | 1.79 s | 0.158 oct at 1000 Hz |
+| Undertow | network | 5.00 s | 5.00 s | 0.002 oct at 500 Hz |
+| Gated | network | 1.60 s | 1.61 s | 0.009 oct at 4000 Hz |
+| Reverse | network | 2.00 s | 2.01 s | 0.014 oct at 125 Hz |
+| Swell | network | 6.00 s | 6.00 s | 0.025 oct at 125 Hz |
+| Nineteen Seventy Nine | network | 3.50 s | 2.93 s | 0.259 oct at 1000 Hz |
+| Nineteen Eighty Four | plate | 2.60 s | 2.11 s | 0.318 oct at 4000 Hz |
+| Magneto | network | 2.20 s | 2.46 s | 0.241 oct at 500 Hz |
+| Chorale | network | 7.00 s | 7.01 s | 0.007 oct at 125 Hz |
+| Choir Loft | network | 9.00 s | 9.01 s | 0.004 oct at 125 Hz |
+| Tape Chamber | network | 2.00 s | 1.79 s | 0.162 oct at 1000 Hz |
 | Long Spring | spring | 3.00 s | 2.54 s | 0.242 oct at 125 Hz |
-| Supermassive | network | 30.00 s | 30.01 s | 0.000 oct at 500 Hz |
-| Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.193 oct at 1000 Hz |
-| Tight Ambience | network | 0.45 s | 0.45 s | 0.033 oct at 500 Hz |
+| Supermassive | network | 30.00 s | 30.01 s | 0.001 oct at 500 Hz |
+| Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.201 oct at 1000 Hz |
+| Tight Ambience | network | 0.45 s | 0.46 s | 0.040 oct at 500 Hz |
 
 ### What the era colouring does to the reading
 
@@ -93,9 +95,9 @@ The colouring sits on the tank's output, not inside its feedback, so it cannot c
 
 | mode | era | measured at 1 kHz |
 |---|---|---|
-| Nineteen Seventy Nine | on | 2.92 s |
+| Nineteen Seventy Nine | on | 2.93 s |
 | Nineteen Seventy Nine | off | 3.51 s |
-| Nineteen Eighty Four | on | 2.10 s |
+| Nineteen Eighty Four | on | 2.11 s |
 | Nineteen Eighty Four | off | 2.16 s |
 
 With the colouring turned down, the network era mode measures its drawn decay to within a hundredth of a second. So the colouring is changing what the measurement can see and not what the tank is doing: reducing the word length and the rate inside it raises the floor that the energy curve is fitted against, and a curve that runs into a floor early reads as a shorter decay. The plate era mode moves hardly at all, because what is wrong there is the plate's lap and not the era.

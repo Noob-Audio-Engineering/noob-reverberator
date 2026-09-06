@@ -602,18 +602,31 @@ fn a_tilt_lengthens_one_end_and_shortens_the_other() {
         on: true,
         shape: Shape::Tilt,
         freq: 800.0,
-        // Four to one between the ends, which the reciprocal law turns into
-        // an asymmetric pair in seconds --- longer below, shorter above.
+        // Four to one between the ends.
         mult: 4.0,
         width: 1.0,
     };
 
-    // What the curve itself claims, before any filter is involved.
-    let lo = curve.t60(80.0);
-    let hi = curve.t60(8_000.0);
-    println!("  drawn: {lo:.3} s at 80 Hz, {hi:.3} s at 8 kHz");
-    assert!(lo > curve.base, "the bottom should be longer than the base");
-    assert!(hi < curve.base, "the top should be shorter than the base");
+    // What the curve itself claims, before any filter is involved. A positive
+    // tilt brightens --- the shared crate's convention, and Noob-Q's --- so
+    // the top rings longer, and the number on the control is the **ratio
+    // between the ends**.
+    let lo = curve.t60(60.0);
+    let hi = curve.t60(12_000.0);
+    println!(
+        "  drawn: {lo:.3} s at 60 Hz, {hi:.3} s at 12 kHz, ratio {:.2}",
+        hi / lo
+    );
+    assert!(hi > curve.base, "the top should be longer than the base");
+    assert!(
+        lo < curve.base,
+        "the bottom should be shorter than the base"
+    );
+    assert!(
+        (hi / lo / 4.0 - 1.0).abs() < 0.12,
+        "a tilt of four should span four between its ends, and spans {:.2}",
+        hi / lo
+    );
 
     let mut fdn = Fdn::new(8, 8192, FS);
     let mut lens = Vec::new();

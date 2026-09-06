@@ -99,10 +99,17 @@ energy backwards. Nothing in it asks the filters what they meant to do.
 
 | what was drawn | worst error across seven octave bands |
 |---|---|
-| flat, 2 s | 0.009 octaves of decay time |
-| lows ×1.5, highs ×0.7 | 0.024 |
-| lows ×2, highs ×0.5 | 0.085 |
-| lows ×4, highs ×0.25 | 0.455, at the shelf's corner |
+| flat, 2 s | 0.014 octaves of decay time |
+| lows ×1.5, highs ×0.7 | 0.023 |
+| lows ×2, highs ×0.5 | 0.056 |
+| lows ×4, highs ×0.25 | 0.187, at the shelf's corner |
+
+The last row said **0.455** until the measurement was fixed rather than the
+engine. Its band-pass had two sections, and on a hard bend the neighbouring
+band's much longer energy leaked through the skirts and became what the fit
+read. With four sections the curve figures roughly halved and the plate and
+spring figures did not move at all — which is the useful part: a better ruler
+separated the engine's real limits from the ruler's own.
 
 Every network mode measures its own decay to within 0.08 octaves and most to
 within 0.02. **The plate and the spring are looser, near 0.3**, and the reason
@@ -113,6 +120,14 @@ have published what is left rather than fitting a correction factor to the
 measurements, which would improve the number without improving the tank.
 
 ## What is in it
+
+The band shapes — bell, low and high shelf, notch and **tilt** — come from
+[noob-band-shapes](https://github.com/Noob-Audio-Engineering/noob-band-shapes),
+shared with Noob-Q. An equaliser wants a filter's actual response and a reverb
+wants the same shape with the gain divided out, because one drawn curve here
+becomes a different filter on every delay line; the crate holds both and a test
+holds them to being the same shape in the limit. It caught the two plug-ins
+disagreeing about which way a tilt points on the first comparison.
 
 **Four architectures**, which are the real structural differences:
 

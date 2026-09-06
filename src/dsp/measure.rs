@@ -24,14 +24,24 @@ pub fn t60_in_band(ir: &[f32], fs: f32, f: f32) -> Option<f32> {
     if f <= 0.0 || f >= fs * 0.45 {
         return None;
     }
-    // Two band-passes in series: one octave wide is too gentle on its own, and
-    // a neighbouring band that rings longer would leak in and be reported as
-    // this band's decay.
-    let mut a = Svf::default();
-    let mut b = Svf::default();
-    a.set(Kind::BandPass, fs, f, 1.41, 0.0);
-    b.set(Kind::BandPass, fs, f, 1.41, 0.0);
-    let filtered: Vec<f32> = ir.iter().map(|&x| b.process(a.process(x))).collect();
+    // Four band-passes in series. Two was not enough, and the way that showed
+    // is worth recording: on a tail tilted four to one across the band, the
+    // 500 Hz reading came out **a full octave long** --- 2.83 s against a
+    // drawn 1.43 s --- because five-second energy at the top of the band leaks
+    // through a gentle skirt and is what is left by the time the energy curve
+    // has fallen thirty decibels. The fit then measures the neighbour.
+    //
+    // Four sections put the skirts far enough down that the band measures
+    // itself. It costs nothing that matters: this runs on a rendered tail, not
+    // in the audio thread.
+    let mut bp: [Svf; 4] = [Svf::default(); 4];
+    for s in bp.iter_mut() {
+        s.set(Kind::BandPass, fs, f, 1.41, 0.0);
+    }
+    let filtered: Vec<f32> = ir
+        .iter()
+        .map(|&x| bp.iter_mut().fold(x, |v, s| s.process(v)))
+        .collect();
 
     // Backwards energy integration, in double precision: the sum runs over
     // hundreds of thousands of squares spanning sixty decibels, and in `f32`
