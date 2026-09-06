@@ -129,11 +129,18 @@ spring figures did not move at all — which is the useful part: a better ruler
 separated the engine's real limits from the ruler's own.
 
 Every network mode measures its own decay to within 0.08 octaves and most to
-within 0.02. **The plate and the spring are looser, near 0.3**, and the reason
-is structural rather than a matter of tuning: their loops run through
-allpasses, whose delay depends on frequency, while the loss is fitted to a
-single number for one lap. No single number can express a delay that varies. I
-have published what is left rather than fitting a correction factor to the
+within 0.02. **The plate is looser, near 0.3**, and the reason is structural
+rather than a matter of tuning: its lap runs through Schroeder allpasses, whose
+delay swings with frequency, while the loss is fitted to a single number for
+one lap. With those lengths in the hundreds of samples the swing completes a
+dozen times inside one octave band, so no single number can express it — the
+raw lengths are the average and read 0.32 octaves long, the value at DC is the
+extreme and reads 0.20 short, and there is no third point that is any less
+arbitrary. The spring was in that sentence until I measured at more than one
+sample rate: its allpasses are first order and its delay varies smoothly, so
+reading it at 1 kHz instead of averaging flat took its worst error from 0.258
+octaves to 0.146 and stopped its decay depending on the rate at all. I have
+published what is left rather than fitting a correction factor to the
 measurements, which would improve the number without improving the tank.
 
 ## What is in it

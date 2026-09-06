@@ -2531,3 +2531,145 @@ fn the_streams_are_in_the_order_both_publishers_expect() {
         ids.len()
     );
 }
+
+/// **A reverb's decay is in seconds, not in samples.**
+///
+/// Everything else here runs at 48 kHz, and almost every number in the engine
+/// is derived from the sample rate: the delay lengths, the loss fit's target
+/// loss per trip, the modulator rates, the pre-delay buffer, the envelope
+/// coefficients. Any one of them left in samples gives a plug-in that decays
+/// for half as long at 96 kHz --- and 48 kHz is the one rate at which such a
+/// bug is invisible, so testing only there proves the least.
+#[test]
+fn the_decay_is_the_same_at_every_sample_rate() {
+    use super::engine::Reverb;
+    use super::mode::{Arch, MODES};
+
+    for arch in [Arch::Network, Arch::Plate, Arch::Spring] {
+        let i = MODES.iter().position(|m| m.arch == arch).expect("an arch");
+        let mut row = Vec::new();
+        for fs in [44_100.0f32, 48_000.0, 88_200.0, 96_000.0, 192_000.0] {
+            let mut s = plain_settings(i);
+            s.mix = 1.0;
+            s.decay = 2.5;
+            s.curve.base = 2.5;
+
+            let mut rev = Reverb::new(fs);
+            rev.configure(&s);
+            let n = (fs * 6.0) as usize;
+            let mut l = vec![0.0f32; n];
+            let mut r = vec![0.0f32; n];
+            l[0] = 1.0;
+            r[0] = 1.0;
+            rev.process(&s, &mut l, &mut r);
+            let ir: Vec<f32> = l.iter().zip(r.iter()).map(|(a, b)| 0.5 * (a + b)).collect();
+
+            let t60 = super::measure::t60_in_band(&ir, fs, 1_000.0)
+                .unwrap_or_else(|| panic!("{arch:?} at {fs} Hz gave no measurable tail"));
+            // The plate reads consistently short of what it is asked for at
+            // every rate --- a known limit of its lap estimate, which
+            // `docs/BENCHMARK.md` reports --- so this bound is loose enough
+            // to hold it. The tight check is the spread below: whatever each
+            // architecture does, it has to do the same thing at every rate.
+            let out = (t60 / 2.5).log2().abs();
+            assert!(
+                out < 0.35,
+                "{arch:?} at {fs} Hz decays in {t60:.2} s where 2.50 s was asked \
+                 ({out:.2} octaves out)"
+            );
+            row.push((fs, t60));
+        }
+        // And they have to agree with *each other*, not merely each be within
+        // tolerance of the target: a rate that is consistently long and one
+        // consistently short can both pass the check above while the plug-in
+        // plainly changes when the session's rate does.
+        let lo = row.iter().map(|(_, t)| *t).fold(f32::MAX, f32::min);
+        let hi = row.iter().map(|(_, t)| *t).fold(0.0f32, f32::max);
+        let spread = (hi / lo).log2().abs();
+        assert!(
+            spread < 0.2,
+            "{arch:?} decays between {lo:.2} s and {hi:.2} s depending on the sample \
+             rate ({spread:.2} octaves apart)"
+        );
+        let list: Vec<String> = row
+            .iter()
+            .map(|(f, t)| format!("{:.0}k:{t:.2}", f / 1000.0))
+            .collect();
+        println!("  {arch:?}: {} ({spread:.3} octaves apart)", list.join(" "));
+    }
+}
+
+/// **How the host chops the audio must not change the audio.**
+///
+/// A host hands over whatever block size it likes and changes it mid-session;
+/// Ableton alone will hand out 64, 128, 256 and an odd remainder at the end of
+/// a loop. Anything the engine does once per block rather than once per sample
+/// --- collecting a fit, publishing a curve, updating a follower --- shows up
+/// as a plug-in that sounds slightly different at a different buffer setting,
+/// which is close to impossible to catch by ear and trivial to catch here.
+#[test]
+fn the_block_size_does_not_change_the_output() {
+    use super::engine::Reverb;
+    use super::mode::{Arch, MODES};
+
+    const FS: f32 = 48_000.0;
+    const N: usize = 48_000;
+
+    for arch in [Arch::Network, Arch::Plate, Arch::Spring, Arch::Early] {
+        let i = MODES.iter().position(|m| m.arch == arch).expect("an arch");
+        let mut s = plain_settings(i);
+        super::engine::Reverb::apply_mode(&mut s, i);
+        s.mix = 0.5;
+
+        // The same input every time, with a start and a stop so the envelopes
+        // and followers are actually moving across block boundaries.
+        let mut seed = 99u32;
+        let input: Vec<f32> = (0..N)
+            .map(|k| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                if k < N / 3 {
+                    ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.4
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+
+        let render = |block: usize| -> Vec<f32> {
+            let mut rev = Reverb::new(FS);
+            rev.configure(&s);
+            let mut out = Vec::with_capacity(N);
+            let mut at = 0;
+            while at < N {
+                let take = block.min(N - at);
+                let mut l = input[at..at + take].to_vec();
+                let mut r = l.clone();
+                rev.process(&s, &mut l, &mut r);
+                out.extend_from_slice(&l);
+                at += take;
+            }
+            out
+        };
+
+        let reference = render(N);
+        // 64 and 128 are ordinary; 37 is prime, so it never lines up with a
+        // delay length or a modulator period and is the one most likely to
+        // expose per-block work.
+        for block in [37usize, 64, 128, 512] {
+            let out = render(block);
+            let diff = reference
+                .iter()
+                .zip(out.iter())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            let peak = reference.iter().fold(0.0f32, |a, b| a.max(b.abs()));
+            assert!(
+                diff <= peak * 1e-5 + 1e-7,
+                "{arch:?} in blocks of {block} differs from one block by {diff:.3e} \
+                 against a peak of {peak:.3e}, so something is done per block that \
+                 should be done per sample"
+            );
+        }
+        println!("  {arch:?}: identical in blocks of 37, 64, 128, 512 and all at once");
+    }
+}

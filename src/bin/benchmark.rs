@@ -316,10 +316,21 @@ point of the machine.\n"
     );
     let _ = writeln!(
         out,
-        "\nThe plate and the spring are looser than the network modes, and their own module \
-comments say why: their loops run through allpasses, whose delay depends on frequency, \
-while the loss is fitted to one number for a lap. No single number can express a delay \
-that varies, so what is left is published rather than tuned away with a fudge factor.\n"
+        "\nThe plate is the loosest of the four, and its own module comments say why: its \
+lap runs through Schroeder allpasses, and the loss is fitted to one number for a lap while \
+an allpass of delay m has a group delay that swings between m(1-g)/(1+g) and m(1+g)/(1-g) \
+as the frequency moves. Two of those numbers have been tried: the raw lengths, which are \
+the average over frequency and read 0.32 octaves long, and the value at DC, which is the \
+extreme and read 0.20 short. Neither is wrong about the allpass and both are wrong about \
+the lap, because with m in the hundreds that swing completes a dozen times inside one \
+octave band, so evaluating it anywhere in particular gives an arbitrary point on it \
+rather than a better one. What is left is published rather than tuned away with a fudge \
+factor.\n\nThe spring used to be in this paragraph and is not any more. Its allpasses \
+are first order, so its group delay varies smoothly across the band instead of \
+oscillating, and one number for a lap means something: read at 1 kHz rather than averaged \
+flat over the band, its worst error fell from 0.258 octaves to 0.146 and its decay stopped \
+depending on the sample rate. That is the difference between a limit and a bug, and only \
+measuring at more than one rate told them apart.\n"
     );
 }
 

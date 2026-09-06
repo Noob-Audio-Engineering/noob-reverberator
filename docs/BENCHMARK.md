@@ -68,7 +68,7 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 | Chamber | network | 2.20 s | 2.20 s | 0.017 oct at 500 Hz |
 | Plate | plate | 2.40 s | 1.98 s | 0.300 oct at 500 Hz |
 | Small Plate | plate | 1.20 s | 1.05 s | 0.284 oct at 125 Hz |
-| Spring | spring | 1.80 s | 2.12 s | 0.258 oct at 125 Hz |
+| Spring | spring | 1.80 s | 1.80 s | 0.146 oct at 4000 Hz |
 | Reflections | early | 0.35 s | no tail to measure | — |
 | Ambience | network | 1.10 s | 1.11 s | 0.085 oct at 125 Hz |
 | Cloud | network | 12.00 s | 12.00 s | 0.002 oct at 125 Hz |
@@ -84,7 +84,7 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 | Chorale | network | 7.00 s | 7.00 s | 0.005 oct at 125 Hz |
 | Choir Loft | network | 9.00 s | 8.99 s | 0.003 oct at 125 Hz |
 | Tape Chamber | network | 2.00 s | 1.79 s | 0.162 oct at 1000 Hz |
-| Long Spring | spring | 3.00 s | 3.39 s | 0.192 oct at 125 Hz |
+| Long Spring | spring | 3.00 s | 3.00 s | 0.110 oct at 4000 Hz |
 | Supermassive | network | 30.00 s | 29.99 s | 0.000 oct at 1000 Hz |
 | Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.201 oct at 1000 Hz |
 | Tight Ambience | network | 0.45 s | 0.46 s | 0.040 oct at 500 Hz |
@@ -112,5 +112,7 @@ With the colouring turned down, the network era mode measures its drawn decay to
 The tape modes read **long**, and that is the tape rather than an error: it sits in front of the tank, so every repeat is a fresh excitation and the energy in the room really does last past the tank's own decay. What is measured there is the tail of an echo into a reverb, which is a different quantity from the reverb's decay, and is the point of the machine.
 
 
-The plate and the spring are looser than the network modes, and their own module comments say why: their loops run through allpasses, whose delay depends on frequency, while the loss is fitted to one number for a lap. No single number can express a delay that varies, so what is left is published rather than tuned away with a fudge factor.
+The plate is the loosest of the four, and its own module comments say why: its lap runs through Schroeder allpasses, and the loss is fitted to one number for a lap while an allpass of delay m has a group delay that swings between m(1-g)/(1+g) and m(1+g)/(1-g) as the frequency moves. Two of those numbers have been tried: the raw lengths, which are the average over frequency and read 0.32 octaves long, and the value at DC, which is the extreme and read 0.20 short. Neither is wrong about the allpass and both are wrong about the lap, because with m in the hundreds that swing completes a dozen times inside one octave band, so evaluating it anywhere in particular gives an arbitrary point on it rather than a better one. What is left is published rather than tuned away with a fudge factor.
+
+The spring used to be in this paragraph and is not any more. Its allpasses are first order, so its group delay varies smoothly across the band instead of oscillating, and one number for a lap means something: read at 1 kHz rather than averaged flat over the band, its worst error fell from 0.258 octaves to 0.146 and its decay stopped depending on the sample rate. That is the difference between a limit and a bug, and only measuring at more than one rate told them apart.
 

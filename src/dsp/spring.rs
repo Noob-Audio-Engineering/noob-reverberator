@@ -58,6 +58,9 @@ pub struct Spring {
     len: f32,
     loss: Loss,
     scratch: Scratch,
+    /// The allpass coefficient every section is set to, kept so [`Spring::trip`]
+    /// can work out how long a trip actually is.
+    a: f32,
     /// How hard the spring's amplifier is driven. See [`super::drive`].
     drive: f32,
     fs: f32,
@@ -74,6 +77,7 @@ impl Spring {
             len: fs * 0.03,
             loss: Loss::default(),
             scratch: Scratch::default(),
+            a: -0.6,
             drive: 0.0,
             fs,
             fb: 0.0,
@@ -101,9 +105,48 @@ impl Spring {
         self.loss.t60(self.fs, self.trip() as usize, f)
     }
 
-    /// One trip, which is what a fit for this coil is against.
+    /// The frequency the trip length is measured at.
+    ///
+    /// A cascade of allpasses has no single delay --- that is the point of it
+    /// --- so a fit against "one trip" has to say which trip. 1 kHz is the
+    /// geometric middle of the band the benchmark reports over (125 Hz to
+    /// 8 kHz), so the error is spread rather than piled on one end.
+    const TRIP_AT: f32 = 1_000.0;
+
+    /// One trip, in samples, which is what a fit for this coil is against.
+    ///
+    /// # Why this is not one sample per section
+    ///
+    /// It was, and a first-order allpass does average exactly one sample of
+    /// group delay over the whole band, so that looked right. But it is an
+    /// average over frequency, and the fit does not care about the average
+    /// --- it cares about the trip at the frequencies somebody listens at.
+    /// The group delay is
+    ///
+    /// ```text
+    /// tau(w) = (1 - a^2) / (1 + 2 a cos w + a^2)
+    /// ```
+    ///
+    /// which for a slack coil is four samples per section near DC and a
+    /// quarter of one near Nyquist. **A fixed frequency is a different point
+    /// on that curve at every sample rate**: at 44.1 kHz, 1 kHz sits well up
+    /// the band, and at 192 kHz the same 1 kHz is four times closer to DC,
+    /// where each section delays it four times as much. The trip was
+    /// therefore under-estimated by more and more as the rate rose, the fit
+    /// solved for more trips than actually happen, and the coil decayed
+    /// short: measured, 2.98 s at 44.1 kHz falling to 2.63 s at 192 kHz for
+    /// the same 2.50 s asked for --- a fifth of an octave of drift that
+    /// nothing at one sample rate could see.
     pub fn trip(&self) -> f32 {
-        self.len + self.used as f32
+        let a = self.a;
+        let w = std::f32::consts::TAU * Self::TRIP_AT / self.fs;
+        let tau = (1.0 - a * a) / (1.0 + 2.0 * a * w.cos() + a * a);
+        self.len + self.used as f32 * tau
+    }
+
+    /// 0 leaves the cascade linear; 1 is as hard as its amplifier is driven.
+    pub fn set_drive(&mut self, amount: f32) {
+        self.drive = amount.clamp(0.0, 1.0);
     }
 
     /// `tension` sets how strong the dispersion is --- a tight spring chirps
@@ -137,13 +180,9 @@ impl Spring {
     ///
     /// Negative, the bottom of the band is delayed more and the top comes
     /// back first, which is the descending "boing" a spring is recognised by.
-    /// 0 leaves the cascade linear; 1 is as hard as it is driven.
-    pub fn set_drive(&mut self, amount: f32) {
-        self.drive = amount.clamp(0.0, 1.0);
-    }
-
     pub fn set_shape(&mut self, tension: f32, sections: usize, delay_ms: f32) {
         let a = -tension.clamp(0.05, 0.95);
+        self.a = a;
         self.used = sections.clamp(1, MAX_SECTIONS);
         for s in &mut self.chain[..self.used] {
             s.a = a;
