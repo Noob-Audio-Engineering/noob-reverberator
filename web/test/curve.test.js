@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { logGrid } from '../src/grid.js';
-import { modePlan } from '../src/mode.js';
+import { deletePreset, modePlan, presetList, savePreset } from '../src/mode.js';
 
 const LO = 20;
 const HI = 20000;
@@ -74,4 +74,53 @@ test('a mode with no set at all plans nothing rather than exploding', () => {
   assert.deepEqual(modePlan(undefined, () => true), []);
   assert.deepEqual(modePlan({}, () => true), []);
   assert.deepEqual(modePlan({ set: null }, () => true), []);
+});
+
+/**
+ * User presets: the build's own first, then the listener's, and only the
+ * listener's may be deleted.
+ */
+test('the list is the factory presets then the user\'s, marked apart', () => {
+  const list = presetList([{ name: 'Vocal Plate' }], [{ name: 'Mine' }]);
+  assert.equal(list.length, 2);
+  assert.equal(list[0].user, false);
+  assert.equal(list[1].user, true);
+});
+
+test('a missing or malformed user list is not a broken panel', () => {
+  assert.equal(presetList([{ name: 'a' }], undefined).length, 1);
+  assert.equal(presetList([{ name: 'a' }], null).length, 1);
+  // An entry with no name would render as a blank row nobody can press.
+  assert.equal(presetList([], [{ nope: 1 }, { name: 'ok' }]).length, 1);
+});
+
+test('saving keeps what makes a sound and drops what does not', () => {
+  const values = [
+    ['decay', 3.2],
+    ['bypass', 1],
+    ['freeze', 1],
+    ['mode', 4],
+    ['mix', 40],
+  ];
+  const { saved } = savePreset('Mine', 4, values, []);
+  assert.deepEqual(saved.set.map(([id]) => id), ['decay', 'mix']);
+  assert.equal(saved.mode, 4, 'the mode is carried on the preset, not in its writes');
+});
+
+test('saving over a name replaces it rather than making a twin', () => {
+  const first = savePreset('Mine', 0, [['decay', 1]], []).presets;
+  const second = savePreset('Mine', 0, [['decay', 9]], first).presets;
+  assert.equal(second.length, 1);
+  assert.deepEqual(second[0].set, [['decay', 9]]);
+});
+
+test('an empty name saves nothing at all', () => {
+  const { presets, saved } = savePreset('   ', 0, [['decay', 1]], [{ name: 'Keep' }]);
+  assert.equal(saved, null);
+  assert.deepEqual(presets, [{ name: 'Keep' }]);
+});
+
+test('deleting removes only the one named', () => {
+  const left = deletePreset('Mine', [{ name: 'Mine' }, { name: 'Other' }]);
+  assert.deepEqual(left, [{ name: 'Other' }]);
 });

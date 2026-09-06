@@ -1624,7 +1624,7 @@ dependencies = [
 [[package]]
 name = "noob-vst-webgui-framework"
 version = "0.1.0"
-source = "git+https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework#59e1f5611ab8a5fe7051f8500e627cf71761f1cb"
+source = "git+https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework#a007d8233bdac6d4c8e624528b252b271ead1982"
 dependencies = [
  "axum",
  "crossbeam-queue",
@@ -1638,7 +1638,7 @@ dependencies = [
 [[package]]
 name = "noob-vst-webgui-framework-nih"
 version = "0.1.0"
-source = "git+https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework#59e1f5611ab8a5fe7051f8500e627cf71761f1cb"
+source = "git+https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework#a007d8233bdac6d4c8e624528b252b271ead1982"
 dependencies = [
  "log",
  "nih_plug",
@@ -1650,7 +1650,7 @@ dependencies = [
 [[package]]
 name = "noob-vst-webgui-framework-webview"
 version = "0.1.0"
-source = "git+https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework#59e1f5611ab8a5fe7051f8500e627cf71761f1cb"
+source = "git+https://github.com/Noob-Audio-Engineering/noob-vst-webgui-framework#a007d8233bdac6d4c8e624528b252b271ead1982"
 dependencies = [
  "log",
  "raw-window-handle 0.6.2",

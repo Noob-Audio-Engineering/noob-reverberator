@@ -12,10 +12,11 @@
 //! page use, and `process`.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use include_dir::{Dir, include_dir};
 use nih_plug::prelude::*;
-use noob_vst_webgui_framework::{Assets, Taper};
+use noob_vst_webgui_framework::{Assets, FileStore, Taper};
 use noob_vst_webgui_framework_nih::{
     EditorConfig, PluginHost, StoreSlot, UiStoreParams, noob_identity, stereo_or_mono_io,
     ui_store_fields,
@@ -205,8 +206,84 @@ unsafe impl Params for NoobReverberatorParams {
     ui_store_fields!(ui_store);
 }
 
+/// Where a person's own presets live, and the thread that writes them.
+///
+/// **A saved preset belongs to the user, not to the project.** The page's
+/// store is persisted by the host with the plug-in state, which is right for
+/// a window size and wrong for a preset --- saved in one session it would not
+/// exist in the next. So this keeps one key of the store, `user_presets`, in a
+/// file beside the discovery records instead, and leaves every other key to
+/// the host. `FileStore::attach_keys` is what makes the two able to coexist:
+/// a whole-store file would replace the store on load and wipe whatever the
+/// session had just restored.
+///
+/// The standalone needs none of this. It already persists the whole store to
+/// its own file, so presets saved there are global for free.
+///
+/// # Why a thread
+///
+/// `flush` is a file write, so it cannot go on the audio thread, and a
+/// plug-in has no host loop of its own to hang it off. Relying on `Drop`
+/// alone would mean a preset saved and then a DAW closed the hard way is a
+/// preset lost. One second is far below the rate anybody saves presets and
+/// costs an atomic swap when nothing has changed.
+struct PresetStore {
+    store: Arc<FileStore>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl PresetStore {
+    /// The key the page keeps its presets under.
+    const KEY: &'static str = "user_presets";
+
+    fn attach(bridge: &noob_vst_webgui_framework::NoobVstWebguiFramework) -> Self {
+        Self::attach_at(bridge, FileStore::default_path("noob-reverberator.presets"))
+    }
+
+    /// The same, at a path of your choosing, so a test does not have to write
+    /// over somebody's actual presets to check that this works.
+    fn attach_at(
+        bridge: &noob_vst_webgui_framework::NoobVstWebguiFramework,
+        path: std::path::PathBuf,
+    ) -> Self {
+        let store = Arc::new(FileStore::attach_keys(bridge, path, &[Self::KEY]));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (s, f) = (stop.clone(), store.clone());
+        let thread = std::thread::Builder::new()
+            .name("noob-reverberator-presets".into())
+            .spawn(move || {
+                while !s.load(Ordering::Acquire) {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if let Err(e) = f.flush() {
+                        nih_log!("presets: could not write {}: {e}", f.path().display());
+                    }
+                }
+            })
+            .ok();
+        PresetStore {
+            store,
+            stop,
+            thread,
+        }
+    }
+}
+
+impl Drop for PresetStore {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+        // Once more, so a preset saved in the last second still lands.
+        let _ = self.store.flush();
+    }
+}
+
 pub struct NoobReverberator {
     params: Arc<NoobReverberatorParams>,
+    /// Alive for the life of the plug-in; see [`PresetStore`].
+    _presets: PresetStore,
     host: PluginHost,
     ix: Option<ParamIx>,
     reverb: Reverb,
@@ -243,8 +320,10 @@ impl Default for NoobReverberator {
             EditorConfig::new(1240, 900).assets(Assets::Lookup(ui_lookup)),
             |b| b.meta(dsp::bridge_meta(48_000.0, false)),
         );
+        let _presets = PresetStore::attach(host.bridge());
         NoobReverberator {
             params,
+            _presets,
             host,
             ix: None,
             reverb: Reverb::new(48_000.0),
@@ -453,6 +532,68 @@ mod tests {
             "  {} parameters keep their steps, their group and their automation flag",
             want.len()
         );
+    }
+
+    /// **A preset saved in a plug-in has to outlive the project.**
+    ///
+    /// The page's store is persisted by the host with the plug-in state, which
+    /// is right for a window size and wrong for a preset: saved in one session
+    /// it would not exist in the next. `PresetStore` keeps that one key in a
+    /// file instead, and this checks the round trip --- written through the
+    /// bridge the way the page writes it, flushed, and read back into a fresh
+    /// bridge that knows nothing.
+    ///
+    /// At a temporary path, because the real one holds somebody's presets.
+    #[test]
+    fn a_saved_preset_outlives_the_bridge_that_saved_it() {
+        use noob_vst_webgui_framework::NoobVstWebguiFrameworkBuilder;
+        use serde_json::json;
+
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "noob-reverberator-presets-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        let saved = json!([{ "name": "Probe", "mode": 3, "set": [["decay", 4.5]] }]);
+        {
+            let b = NoobVstWebguiFrameworkBuilder::new("preset round trip").build();
+            let store = PresetStore::attach_at(&b, path.clone());
+            b.store_set(PresetStore::KEY, saved.clone()).unwrap();
+            // Dropped rather than flushed by hand: `Drop` stops the flusher
+            // thread, joins it, and writes once more. Calling `flush` here as
+            // well raced that thread over the temporary file and failed with
+            // "used by another process" --- two writers for a file that has
+            // exactly one writer in the plug-in.
+            drop(store);
+        }
+        assert!(path.exists(), "dropping the store wrote nothing");
+
+        // A different bridge, with nothing in it, is what a new session is.
+        let b = NoobVstWebguiFrameworkBuilder::new("preset round trip").build();
+        assert!(
+            b.store_get(PresetStore::KEY).is_none(),
+            "the store started dirty"
+        );
+        let _store = PresetStore::attach_at(&b, path.clone());
+        assert_eq!(
+            b.store_get(PresetStore::KEY)
+                .expect("the preset did not come back"),
+            saved
+        );
+
+        // And it must not have swallowed the rest of the store on the way in.
+        let b2 = NoobVstWebguiFrameworkBuilder::new("preset round trip").build();
+        b2.store_set("window", json!({ "w": 800 })).unwrap();
+        let _s2 = PresetStore::attach_at(&b2, path.clone());
+        assert_eq!(
+            b2.store_get("window")
+                .expect("the session's own key was replaced"),
+            json!({ "w": 800 })
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     /// **A parameter has to mean the same thing to the host and to the page.**
