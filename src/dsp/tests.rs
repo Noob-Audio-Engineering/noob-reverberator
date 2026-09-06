@@ -947,7 +947,7 @@ fn a_sweep_repeats_and_a_walk_does_not() {
         let mut m = Modulator::new(7);
         m.set_rate(FS, RATE);
         let n = period * 6;
-        let v: Vec<f32> = (0..n).map(|_| m.next(1.0, random)).collect();
+        let v: Vec<f32> = (0..n).map(|_| m.next(1.0, random, 0.0)).collect();
         // Against itself one period later, over the settled part.
         let a = &v[period..n - period];
         let b = &v[period * 2..n];
@@ -1321,10 +1321,14 @@ fn plain_settings(mode: usize) -> super::engine::Settings {
         density: 0.8,
         attack_ms: 0.0,
         predelay_ms: 0.0,
+        predelay_sync: 0,
+        predelay_offset: 1.0,
+        tempo: None,
         width: 1.0,
         mod_rate: 0.0,
         mod_depth: 0.0,
         mod_random: 0.0,
+        mod_chaos: 0.0,
         early_level: 0.0,
         early_size: 8.0,
         early_absorb: 0.35,
@@ -1628,5 +1632,541 @@ fn every_parameter_resolves_and_reads_back_its_default() {
     println!(
         "  {} parameters, all resolved and read back",
         super::params::param_specs().len()
+    );
+}
+
+/// Chaos has to be its own thing, not a rougher walk or a wobblier sweep.
+///
+/// VintageVerb's Chaotic modes are described as wow and flutter --- an
+/// unsteady transport, which is two rates at once: a drift well under the
+/// sweep's and a flutter well over it. If it were on the same axis as the
+/// other two, blending it in would only make one of them noisier, and there
+/// would be no reason for the control to exist.
+///
+/// Measured by where the modulation's own energy sits in frequency. A sweep
+/// puts it all at the rate it was set to; chaos puts it somewhere else
+/// entirely, at both ends.
+#[test]
+fn chaos_moves_at_rates_the_sweep_does_not() {
+    use super::modulate::Modulator;
+    use rustfft::{FftPlanner, num_complex::Complex};
+
+    const FS: f32 = 48_000.0;
+    const RATE: f32 = 3.0;
+    const N: usize = 1 << 15;
+
+    // The spectrum of the modulation itself, decimated so a fraction of a
+    // hertz is resolvable in a reasonable block.
+    let spectrum = |chaos: f32| -> Vec<f32> {
+        let mut m = Modulator::new(11);
+        m.set_rate(FS, RATE);
+        const DEC: usize = 64;
+        let mut buf: Vec<Complex<f32>> = Vec::with_capacity(N);
+        let mut acc = 0.0f32;
+        for i in 0..N * DEC {
+            let v = m.next(1.0, 0.0, chaos);
+            acc += v;
+            if i % DEC == DEC - 1 {
+                buf.push(Complex::new(acc / DEC as f32, 0.0));
+                acc = 0.0;
+            }
+        }
+        buf.truncate(N);
+        FftPlanner::new().plan_fft_forward(N).process(&mut buf);
+        buf.iter().take(N / 2).map(|c| c.norm()).collect()
+    };
+
+    // Bin width after decimating by 64.
+    let bin = FS / 64.0 / N as f32;
+    let energy_between = |s: &[f32], lo: f32, hi: f32| -> f32 {
+        let a = (lo / bin) as usize;
+        let b = ((hi / bin) as usize).min(s.len() - 1);
+        s[a..=b].iter().map(|v| v * v).sum::<f32>()
+    };
+
+    let steady = spectrum(0.0);
+    let chaotic = spectrum(1.0);
+
+    // The sweep's own rate, the drift below it, and the flutter above.
+    let at_rate = |s: &[f32]| energy_between(s, RATE - 0.5, RATE + 0.5);
+    let drift = |s: &[f32]| energy_between(s, 0.2, 1.2);
+    let flutter = |s: &[f32]| energy_between(s, 7.0, 12.0);
+
+    let sd = drift(&steady) / at_rate(&steady);
+    let cd = drift(&chaotic) / at_rate(&chaotic);
+    let sf = flutter(&steady) / at_rate(&steady);
+    let cf = flutter(&chaotic) / at_rate(&chaotic);
+    println!("  drift against the rate  : steady {sd:.4}, chaotic {cd:.4}");
+    println!("  flutter against the rate: steady {sf:.4}, chaotic {cf:.4}");
+    assert!(cd > sd * 20.0, "chaos should drift: {sd:.4} then {cd:.4}");
+    assert!(cf > sf * 20.0, "chaos should flutter: {sf:.4} then {cf:.4}");
+}
+
+/// A synced pre-delay has to land on the division it names, at the tempo the
+/// host reports --- and fall back to the free time when there is no tempo.
+///
+/// The arithmetic is four lines and every one of them is easy to get subtly
+/// wrong: a beat is a quarter note, a triplet is two thirds of one and not a
+/// third, and a dotted note is one and a half. All of those produce a delay
+/// that sounds deliberate and is on the wrong subdivision.
+#[test]
+fn a_synced_predelay_lands_on_its_division() {
+    use super::sync::{SYNC_NAMES, predelay_ms};
+
+    // At 120 bpm a beat is 500 ms, which makes every division a round number.
+    let bpm = Some(120.0f32);
+    let want = [
+        ("Free", 33.0f32), // the free value, untouched
+        ("1/4", 500.0),
+        ("1/4T", 333.333),
+        ("1/4.", 750.0),
+        ("1/8", 250.0),
+        ("1/8T", 166.667),
+        ("1/8.", 375.0),
+        ("1/16", 125.0),
+        ("1/16T", 83.333),
+        ("1/16.", 187.5),
+        ("1/32", 62.5),
+    ];
+    for (i, (name, ms)) in want.iter().enumerate() {
+        assert_eq!(SYNC_NAMES[i], *name, "the names moved");
+        let got = predelay_ms(i, 33.0, bpm, 1.0);
+        assert!(
+            (got - ms).abs() < 0.5,
+            "{name} at 120 bpm gave {got:.1} ms and should give {ms:.1}"
+        );
+    }
+
+    // The offset, which is what makes a synced delay usable rather than
+    // merely correct: half a division early, two late.
+    assert!((predelay_ms(4, 0.0, bpm, 0.5) - 125.0).abs() < 0.5);
+    assert!((predelay_ms(4, 0.0, bpm, 2.0) - 500.0).abs() < 0.5);
+
+    // Twice the tempo, half the time.
+    assert!((predelay_ms(1, 0.0, Some(240.0), 1.0) - 250.0).abs() < 0.5);
+
+    // And with nothing to sync to, the free time rather than an invented
+    // tempo.
+    for (i, name) in SYNC_NAMES.iter().enumerate() {
+        assert!(
+            (predelay_ms(i, 41.0, None, 1.0) - 41.0).abs() < 1e-6,
+            "{name} invented a tempo"
+        );
+    }
+    println!(
+        "  {} divisions, all landing where they say",
+        SYNC_NAMES.len()
+    );
+}
+
+/// **Every mode has to decay at the length it advertises.**
+///
+/// The mode table is a list of claims in seconds, and nothing else checks
+/// them: a mode whose architecture ignores its `decay`, or whose lines are
+/// scaled so the tank is a different size than the one asked for, still comes
+/// out audible and finite and would pass the test above. This one measures
+/// the tail each mode actually produces and holds it against its own entry.
+///
+/// The tolerance is wide on purpose --- half an octave either way. The point
+/// is that the number in the table governs the sound, not that a hall lands
+/// on a millisecond, and the architectures reach their decay by different
+/// routes.
+#[test]
+fn every_mode_decays_at_the_length_it_claims() {
+    use super::mode::{Arch, MODES};
+
+    const FS: f32 = 48_000.0;
+    let mut checked = 0;
+    let mut worst = (0.0f32, "");
+    for (i, m) in MODES.iter().enumerate() {
+        // Early reflections are taps and have no tail to measure; a mode that
+        // says so is not making a claim this test can hold it to.
+        if m.arch == Arch::Early {
+            continue;
+        }
+        let mut s = plain_settings(i);
+        super::engine::Reverb::apply_mode(&mut s, i);
+        s.mix = 1.0;
+        // The characters that deliberately move the tail's level over time
+        // are turned off: an envelope or a swell is measured as a decay rate
+        // by anything that fits a line to the level, and that is a real
+        // effect rather than a wrong one.
+        s.shape = super::shape::Kind::Off;
+        s.bloom = 0.0;
+        s.attack_ms = 0.0;
+        let ir = render_engine(&s, (m.decay * 2.5).clamp(2.0, 14.0));
+        let Some(t60) = super::measure::t60_in_band(&ir, FS, 1_000.0) else {
+            panic!("{} gave a tail nothing could be measured on", m.name);
+        };
+        let octaves = (t60 / m.decay).log2().abs();
+        if octaves > worst.0 {
+            worst = (octaves, m.name);
+        }
+        assert!(
+            octaves < 0.5,
+            "{} asks for {:.2} s and gives {:.2} s ({:.2} octaves out)",
+            m.name,
+            m.decay,
+            t60,
+            octaves
+        );
+        checked += 1;
+    }
+    println!(
+        "  {checked} modes decay as advertised, worst {:.2} octaves ({})",
+        worst.0, worst.1
+    );
+}
+
+/// **What a mode declares has to reach the output.**
+///
+/// Each mode is a row of numbers, and every one of them is a wire that can be
+/// left unconnected: a `choir` that no stage reads, a `tape` the tank never
+/// sees, a `chaos` that arrives at a modulator which ignores it. The engine
+/// still runs, the mode still sounds like a reverb, and the panel still shows
+/// the control --- the mode is simply not the mode it says it is.
+///
+/// So for every character a mode declares, this renders the mode twice, once
+/// as written and once with that one field taken out, and requires the two to
+/// differ. It is a wiring test rather than a sound test: it says the field is
+/// connected to something, not that what it is connected to is good.
+#[test]
+fn every_character_a_mode_declares_reaches_the_output() {
+    use super::engine::{Reverb, Settings};
+    use super::mode::MODES;
+
+    // Name, whether the mode declares it, and how to take it out.
+    type Off = fn(&mut Settings);
+    let characters: [(&str, fn(&super::mode::Mode) -> bool, Off); 10] = [
+        ("early", |m| m.early > 0.0, |s| s.early_level = 0.0),
+        ("shift", |m| m.shift_mix > 0.0, |s| s.shift_mix = 0.0),
+        ("era", |m| m.era_amount > 0.0, |s| s.era_amount = 0.0),
+        ("tape", |m| m.tape > 0.0, |s| s.tape_mix = 0.0),
+        ("choir", |m| m.choir > 0.0, |s| s.choir_amount = 0.0),
+        ("distance", |m| m.distance > 0.0, |s| s.distance = 0.0),
+        ("thickness", |m| m.thickness > 0.0, |s| s.thickness = 0.0),
+        ("bloom", |m| m.bloom > 0.0, |s| s.bloom = 0.0),
+        ("chaos", |m| m.chaos > 0.0, |s| s.mod_chaos = 0.0),
+        (
+            "shape",
+            |m| m.shape != super::shape::Kind::Off,
+            |s| s.shape = super::shape::Kind::Off,
+        ),
+    ];
+
+    let mut seen = std::collections::BTreeMap::new();
+    for (i, m) in MODES.iter().enumerate() {
+        let mut base = plain_settings(i);
+        Reverb::apply_mode(&mut base, i);
+        base.mix = 1.0;
+        let with = render_engine(&base, 1.5);
+
+        for (name, declared, remove) in characters.iter() {
+            if !declared(m) {
+                continue;
+            }
+            let mut without = base;
+            remove(&mut without);
+            let out = render_engine(&without, 1.5);
+            let diff = energy(
+                &with
+                    .iter()
+                    .zip(out.iter())
+                    .map(|(a, b)| a - b)
+                    .collect::<Vec<_>>(),
+            );
+            let level = energy(&with).max(1e-9);
+            assert!(
+                diff / level > 1e-3,
+                "{} declares {name} and takes it out unnoticed ({:.2e} against {:.2e})",
+                m.name,
+                diff,
+                level
+            );
+            *seen.entry(*name).or_insert(0) += 1;
+        }
+    }
+
+    // And every character has to be declared by somebody, or it is a field
+    // with a page control and no mode behind it.
+    for (name, _, _) in characters.iter() {
+        assert!(seen.contains_key(name), "no mode declares {name}");
+    }
+    let list: Vec<String> = seen.iter().map(|(k, v)| format!("{k}x{v}")).collect();
+    println!("  characters wired: {}", list.join(" "));
+}
+
+/// **Every parameter has to change the sound.**
+///
+/// This is the test I did not have, and four controls were dead without a
+/// single failure to show for it: Bloom, Ducking, Auto Gate and Thickness all
+/// arrived in `Settings`, sat in the equality check that decides whether to
+/// reconfigure, and appeared on the panel with a working knob --- while
+/// reaching no stage at all. Three of them even had passing unit tests,
+/// because a test that builds the stage itself and calls `set` on it is right
+/// about the stage and says nothing about whether the engine ever calls it.
+///
+/// So this one goes the other way round: it starts from the parameter list
+/// the plug-in publishes, moves each parameter, and requires the output to
+/// move too. A control that changes nothing is either unwired or should not
+/// be on the panel.
+///
+/// **The match below has to stay exhaustive.** A parameter it does not know
+/// how to move fails the test rather than being skipped, which is what makes
+/// this hold for parameters that do not exist yet.
+#[test]
+fn every_parameter_changes_the_sound() {
+    use super::colour::Era;
+    use super::engine::{Reverb, Settings};
+    use super::mode::{Arch, MODES};
+    use super::shape::Kind as ShapeKind;
+
+    // A base with every *additive* section already up, because half of these
+    // parameters are the detail of a section that is off by default: Bloom
+    // Time does nothing at Bloom 0, and Tape Heads does nothing with no tape,
+    // so a sweep from the defaults would report them dead and be wrong.
+    //
+    // The three that *mute* --- the envelope shape, the ducker and the auto
+    // gate --- are deliberately left off here even though they are sections
+    // like the others. With them on, the tail after the input stops is
+    // silenced three times over, and every parameter whose effect is in the
+    // tail reads as dead: that is how this test first accused the tape's
+    // feedback, whose repeats were being gated away. Each of them is switched
+    // on by its own arm below instead, along with the detail control that
+    // needs it.
+    fn live() -> Settings {
+        let mut s = plain_settings(0);
+        s.mix = 1.0;
+        s.decay = 2.0;
+        s.curve.base = 2.0;
+        s.mod_rate = 0.8;
+        s.mod_depth = 0.3;
+        s.mod_random = 0.4;
+        s.mod_chaos = 0.4;
+        s.early_level = 0.4;
+        s.shift = 3.0;
+        s.shift_mix = 0.4;
+        s.era = Era::Eighties;
+        s.era_amount = 0.5;
+        s.distance = 0.4;
+        s.thickness = 0.5;
+        s.bloom = 0.5;
+        s.tape_mix = 0.4;
+        s.choir_amount = 0.5;
+        s.predelay_ms = 20.0;
+        s
+    }
+
+    // How to move each one. `None` for a parameter that is not swept here ---
+    // `mode` is the whole table rather than one control, and is taken on its
+    // own at the end.
+    fn move_it(s: &mut Settings, id: &str) -> Option<()> {
+        match id {
+            "bypass" => s.bypass = true,
+            "mix" => s.mix = 0.2,
+            "output" => s.output = 0.4,
+            "freeze" => s.freeze = true,
+            "mode" => return None,
+            "decay" => {
+                s.decay = 6.0;
+                s.curve.base = 6.0;
+            }
+            "size" => s.size = 2.5,
+            "density" => s.density = 0.1,
+            "attack" => s.attack_ms = 300.0,
+            "predelay" => s.predelay_ms = 120.0,
+            "predelay_sync" => {
+                s.predelay_sync = 4;
+                s.tempo = Some(120.0);
+            }
+            "predelay_offset" => {
+                s.predelay_sync = 4;
+                s.tempo = Some(120.0);
+                s.predelay_offset = 1.7;
+            }
+            "width" => s.width = 0.0,
+            "mod_rate" => s.mod_rate = 4.0,
+            "mod_depth" => s.mod_depth = 0.9,
+            "mod_random" => s.mod_random = 1.0,
+            "mod_chaos" => s.mod_chaos = 1.0,
+            "early_level" => s.early_level = 1.0,
+            "early_size" => s.early_size = 30.0,
+            "early_absorb" => s.early_absorb = 0.9,
+            "early_taps" => s.early_taps = 60,
+            "shift" => s.shift = -7.0,
+            "shift_mix" => s.shift_mix = 1.0,
+            "shift_window" => s.shift_window = 4_096.0,
+            "shape" => s.shape = ShapeKind::Reverse,
+            "shape_hold" => {
+                s.shape = ShapeKind::Gate;
+                s.shape_hold = 1_400.0;
+            }
+            "era" => s.era = Era::Seventies,
+            "era_amount" => s.era_amount = 1.0,
+            "tension" => s.tension = 0.15,
+            "sections" => s.sections = 30,
+            "lines" => s.lines = 6,
+            "tape_mix" => s.tape_mix = 1.0,
+            "tape_time" => s.tape_time = 90.0,
+            "tape_heads" => s.tape_heads = 1,
+            "tape_feedback" => s.tape_feedback = 0.8,
+            "tape_wobble" => s.tape_wobble = 1.0,
+            "tape_drive" => s.tape_drive = 1.0,
+            "choir_amount" => s.choir_amount = 1.0,
+            "choir_vowel" => s.choir_vowel = 3.0,
+            "choir_spread" => s.choir_spread = 1.0,
+            "choir_resonance" => s.choir_resonance = 1.0,
+            "distance" => s.distance = 1.0,
+            "thickness" => s.thickness = 1.0,
+            "duck" => s.duck = 1.0,
+            "duck_release" => {
+                s.duck = 1.0;
+                s.duck_release = 2_000.0;
+            }
+            "gate" => s.gate = 1.0,
+            "gate_hold" => {
+                s.gate = 1.0;
+                s.gate_hold = 30.0;
+            }
+            "bloom" => s.bloom = 1.0,
+            "bloom_time" => s.bloom_time = 400.0,
+            "bloom_swell" => s.bloom_swell = 1_800.0,
+            _ => {
+                // The bands are generated, so they are matched by shape.
+                let Some(rest) = id.strip_prefix("band") else {
+                    panic!("`{id}` is a parameter this test does not know how to move");
+                };
+                let (n, field) = rest.split_once('_').expect("bandN_field");
+                // The parameters count from one and the array from zero.
+                let n: usize = n.parse().expect("a band number");
+                let b = &mut s.curve.bands[n - 1];
+                b.on = true;
+                match field {
+                    "on" => {}
+                    "shape" => b.shape = super::decay::Shape::LowShelf,
+                    "freq" => b.freq = 220.0,
+                    "mult" => b.mult = 4.0,
+                    "width" => b.width = 3.0,
+                    _ => panic!("`{id}` has a field this test does not know"),
+                }
+                // A band that is only switched on does nothing until it also
+                // asks for a decay other than the one it already has.
+                if field != "mult" {
+                    b.mult = 2.5;
+                }
+            }
+        }
+        Some(())
+    }
+
+    // A signal with a start and a stop, so the dynamics parameters have
+    // something to act on: an impulse never lets a gate close or a ducker
+    // recover, and neither does a tone that never ends.
+    fn render(s: &Settings) -> Vec<f32> {
+        const FS: f32 = 48_000.0;
+        let n = (FS * 2.5) as usize;
+        let mut rev = Reverb::new(FS);
+        rev.configure(s);
+        let mut l = vec![0.0f32; n];
+        let mut r = vec![0.0f32; n];
+        let mut seed = 0x1234_5678u32;
+        for i in 0..n {
+            let v = if i < (FS * 0.4) as usize {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.5
+            } else {
+                0.0
+            };
+            l[i] = v;
+            r[i] = v * 0.8;
+        }
+        rev.process(s, &mut l, &mut r);
+        // Kept apart rather than summed: Width moves the two channels against
+        // each other and would vanish in a mono sum.
+        l.into_iter().chain(r).collect()
+    }
+
+    // Every architecture, because a parameter belonging to one of them is not
+    // dead for being silent in the others: Tension is a spring's, and the
+    // network has no use for it.
+    let arches = [Arch::Network, Arch::Plate, Arch::Spring, Arch::Early];
+    let mode_for = |a: Arch| MODES.iter().position(|m| m.arch == a).expect("an arch");
+
+    let ids: Vec<String> = super::params::param_specs()
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    assert!(ids.len() > 50, "only {} parameters", ids.len());
+
+    let mut references = Vec::new();
+    for a in arches {
+        let mut s = live();
+        // The architecture is the mode's, so this picks a mode that uses each
+        // one and leaves every other setting where `live` put it.
+        s.mode = mode_for(a);
+        let out = render(&s);
+        references.push((s, out));
+    }
+
+    let mut swept = 0;
+    let mut worst: (f32, String) = (f32::MAX, String::new());
+    for id in ids.iter() {
+        let mut best = 0.0f32;
+        let mut moved = false;
+        for (base, reference) in references.iter() {
+            let mut s = *base;
+            if move_it(&mut s, id).is_none() {
+                continue;
+            }
+            moved = true;
+            let out = render(&s);
+            let diff = energy(
+                &reference
+                    .iter()
+                    .zip(out.iter())
+                    .map(|(a, b)| a - b)
+                    .collect::<Vec<_>>(),
+            );
+            best = best.max(diff / energy(reference).max(1e-9));
+        }
+        if !moved {
+            continue;
+        }
+        assert!(
+            best > 1e-3,
+            "`{id}` was moved and the output did not follow ({best:.2e} relative, in any \
+             architecture) --- either it is not wired or it should not be a control"
+        );
+        if best < worst.0 {
+            worst = (best, id.clone());
+        }
+        swept += 1;
+    }
+
+    // And the mode parameter, which is not one control but the whole table.
+    // Two modes are allowed to land on the same tail level --- they differ in
+    // more than level --- but most of them may not, or the table is a list of
+    // names over one sound.
+    let mut heard = std::collections::BTreeSet::new();
+    for i in 0..MODES.len() {
+        let mut s = live();
+        Reverb::apply_mode(&mut s, i);
+        s.mode = i;
+        heard.insert((energy(&render(&s)) * 1e6) as i64);
+    }
+    assert!(
+        heard.len() * 4 >= MODES.len() * 3,
+        "{} modes produced only {} distinguishable tails",
+        MODES.len(),
+        heard.len()
+    );
+
+    println!(
+        "  {swept} parameters swept, all audible; {} modes, {} distinct; \
+         faintest was `{}` at {:.1e}",
+        MODES.len(),
+        heard.len(),
+        worst.1,
+        worst.0
     );
 }

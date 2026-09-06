@@ -59,6 +59,7 @@ pub struct Plate {
     modu: [Modulator; 2],
     depth: f32,
     random: f32,
+    chaos: f32,
     feed: [f32; 2],
     fs: f32,
     scale: f32,
@@ -100,6 +101,7 @@ impl Plate {
             modu: [Modulator::new(0x9E37_79B9), Modulator::new(0x85EB_CA6B)],
             depth: 0.0,
             random: 0.0,
+            chaos: 0.0,
             feed: [0.0, 0.0],
             fs,
             scale: 1.0,
@@ -193,12 +195,13 @@ impl Plate {
         }
     }
 
-    pub fn set_modulation(&mut self, rate: f32, depth: f32, random: f32) {
+    pub fn set_modulation(&mut self, rate: f32, depth: f32, random: f32, chaos: f32) {
         for m in &mut self.modu {
             m.set_rate(self.fs, rate);
         }
         self.depth = depth * self.scale;
         self.random = random.clamp(0.0, 1.0);
+        self.chaos = chaos.clamp(0.0, 1.0);
     }
 
     /// One lap of the figure of eight, in samples.
@@ -220,7 +223,7 @@ impl Plate {
             // Each half is fed by the *other* half's last output: that
             // crossing is the figure of eight.
             let y = v + self.feed[1 - i];
-            let len = self.ap1_len[i] + self.modu[i].next(self.depth, self.random);
+            let len = self.ap1_len[i] + self.modu[i].next(self.depth, self.random, self.chaos);
             let y = self.ap1[i].process_at(y, len);
             self.d1[i].push(y);
             let a = self.d1[i].read(self.len1[i]);

@@ -36,6 +36,20 @@ pub struct Fdn {
     /// The fit's workspace, shared by every line because they are fitted one
     /// after another.
     scratch: Scratch,
+    /// How hard the tank is driven into its own saturation.
+    ///
+    /// A reverb tank that is only ever linear stays polite however loud it is
+    /// fed, because every pass is the same pass at a smaller level. Plates
+    /// and chambers do not: the transducer, the amplifier or the tape in the
+    /// loop compresses each trip, so a loud tail is *denser* than a quiet one
+    /// rather than the same tail scaled up.
+    ///
+    /// Placed in the feedback path, after the loss filter, so it acts once
+    /// per trip. The curve is unity-slope at the origin, which matters more
+    /// than its shape: the drawn decay is a small-signal property, and a
+    /// saturator that squeezed the last of the tail would make every mode
+    /// that uses this decay at a length other than the one it asks for.
+    drive: f32,
     n: usize,
     fs: f32,
 }
@@ -51,9 +65,15 @@ impl Fdn {
             read_at: vec![max_len as f32 * 0.5; n],
             buf: vec![0.0; n],
             scratch: Scratch::default(),
+            drive: 0.0,
             n,
             fs,
         }
+    }
+
+    /// 0 leaves the loop linear; 1 is as hard as the tank is driven.
+    pub fn set_drive(&mut self, amount: f32) {
+        self.drive = amount.clamp(0.0, 1.0);
     }
 
     pub fn lines(&self) -> usize {
@@ -149,8 +169,17 @@ impl Fdn {
         householder(&mut self.buf[..self.n]);
 
         for (i, (&x, inject)) in self.buf[..self.n].iter().zip(input).enumerate() {
-            let v = self.loss[i].process(x) + inject;
-            self.lines[i].push(v);
+            let mut v = self.loss[i].process(x);
+            if self.drive > 0.0 {
+                // Held to unity slope at zero so the decay the curve asks for
+                // is the decay a dying tail gets. `g` is how far up the curve
+                // a signal of a given level sits: at drive 1 a unit sample is
+                // squeezed to about 0.76, and a tail at a hundredth of that
+                // is untouched.
+                let g = 1.0 + 3.0 * self.drive;
+                v = (v * g).tanh() / g;
+            }
+            self.lines[i].push(v + inject);
         }
     }
 }

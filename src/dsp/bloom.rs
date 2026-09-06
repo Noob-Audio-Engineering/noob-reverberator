@@ -22,7 +22,10 @@ use super::delay::Delay;
 use super::filters::OnePole;
 
 pub struct Bloom {
-    line: Delay,
+    /// One generator per channel. They share an onset and a swell --- a note
+    /// arriving on one side has to bloom on both, or the swell pulls the
+    /// image over to whichever channel happened to be louder.
+    line: [Delay; 2],
     len: f32,
     /// The input follower, which is only used to spot an onset.
     env: f32,
@@ -36,8 +39,8 @@ pub struct Bloom {
     floor: f32,
     /// One pole in the loop, so a bloom darkens as it grows rather than
     /// turning into a whistle.
-    tone: OnePole,
-    fb: f32,
+    tone: [OnePole; 2],
+    fb: [f32; 2],
     fs: f32,
 }
 
@@ -45,7 +48,7 @@ impl Bloom {
     pub fn new(fs: f32, max_ms: f32) -> Self {
         let cap = ((fs * max_ms / 1000.0) as usize + 64).next_power_of_two();
         let mut b = Bloom {
-            line: Delay::with_capacity(cap),
+            line: [Delay::with_capacity(cap), Delay::with_capacity(cap)],
             len: fs * 0.12,
             env: 0.0,
             env_k: (-1.0f32 / (0.003 * fs)).exp(),
@@ -54,8 +57,8 @@ impl Bloom {
             swell: fs * 0.6,
             depth: 0.0,
             floor: 0.0,
-            tone: OnePole::default(),
-            fb: 0.0,
+            tone: [OnePole::default(); 2],
+            fb: [0.0; 2],
             fs,
         };
         b.set(0.0, 120.0, 600.0);
@@ -63,18 +66,20 @@ impl Bloom {
     }
 
     pub fn clear(&mut self) {
-        self.line.clear();
-        self.tone.reset();
+        for c in 0..2 {
+            self.line[c].clear();
+            self.tone[c].reset();
+            self.fb[c] = 0.0;
+        }
         self.env = 0.0;
         self.prev = 0.0;
         self.phase = f32::MAX;
-        self.fb = 0.0;
     }
 
     /// `amount` is how much the feedback swells, `time_ms` one pass of the
     /// generator, and `swell_ms` how long it takes to reach full.
     pub fn set(&mut self, amount: f32, time_ms: f32, swell_ms: f32) {
-        let cap = self.line.capacity() as f32 - 8.0;
+        let cap = self.line[0].capacity() as f32 - 8.0;
         self.len = (time_ms.max(1.0) * self.fs / 1000.0).clamp(8.0, cap);
         let a = amount.clamp(0.0, 1.0);
         // Held below one even at the top of a swell: a loop that reaches
@@ -100,11 +105,18 @@ impl Bloom {
     /// note rather than with it.
     #[inline]
     pub fn process(&mut self, x: f32) -> f32 {
+        let (l, _) = self.process_stereo(x, 0.0);
+        l
+    }
+
+    /// Both channels, off one onset and one swell.
+    pub fn process_stereo(&mut self, xl: f32, xr: f32) -> (f32, f32) {
         if self.depth <= 0.0 {
-            return x;
+            return (xl, xr);
         }
-        // An onset: the follower has risen sharply from a low level.
-        let a = x.abs();
+        // An onset: the follower has risen sharply from a low level. Taken
+        // across both channels so the two sides swell together.
+        let a = xl.abs().max(xr.abs());
         self.env = a.max(self.env * self.env_k);
         if self.env > self.prev * 1.5 && self.env > 1e-3 {
             self.phase = 0.0;
@@ -122,12 +134,16 @@ impl Bloom {
             (-(u - 1.0) / 3.0).exp()
         };
 
-        self.line.push(x + self.fb);
-        let out = self.line.read(self.len);
         let g = (self.floor + self.depth * shape).min(0.97);
-        self.fb = self.tone.process(out) * g;
-        // The generator's output *and* the dry input, or the attack
-        // disappears into the swell.
-        x + out
+        let mut out = [0.0f32; 2];
+        for (c, x) in [xl, xr].into_iter().enumerate() {
+            self.line[c].push(x + self.fb[c]);
+            let y = self.line[c].read(self.len);
+            self.fb[c] = self.tone[c].process(y) * g;
+            // The generator's output *and* the dry input, or the attack
+            // disappears into the swell.
+            out[c] = x + y;
+        }
+        (out[0], out[1])
     }
 }

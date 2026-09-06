@@ -46,6 +46,9 @@ const lines = useParam('lines');
 const modRate = useParam('mod_rate');
 const modDepth = useParam('mod_depth');
 const modRandom = useParam('mod_random');
+const modChaos = useParam('mod_chaos');
+const predelaySync = useParam('predelay_sync');
+const predelayOffset = useParam('predelay_offset');
 
 const earlyLevel = useParam('early_level');
 const earlySize = useParam('early_size');
@@ -169,6 +172,10 @@ const arch = computed(() => current.value.arch ?? 'network');
     <!-- Everything else -->
     <div class="grid shrink-0 grid-cols-4 gap-2">
       <Panel title="Space" :hint="arch">
+        <div class="mb-2 flex items-center gap-2">
+          <span class="text-[9px] uppercase tracking-[0.08em] text-[var(--faint)]">Pre sync</span>
+          <Segmented :p="predelaySync" :labels="m.sync ?? []" class="text-[9px]" />
+        </div>
         <div class="flex flex-wrap items-end gap-1">
           <Knob :p="decay" :size="44" label="Decay" />
           <Knob
@@ -187,6 +194,7 @@ const arch = computed(() => current.value.arch ?? 'network');
           />
           <Knob :p="attack" :size="40" label="Attack" />
           <Knob :p="predelay" :size="40" label="Pre" />
+          <Knob :p="predelayOffset" :size="40" label="Pre Offset" />
           <Knob :p="width" :size="40" label="Width" />
           <Knob v-if="arch === 'network'" :p="lines" :size="40" label="Lines" />
           <Knob :p="distance" :size="40" label="Distance" />
@@ -204,10 +212,12 @@ const arch = computed(() => current.value.arch ?? 'network');
           <Knob :p="modRate" :size="40" label="Rate" />
           <Knob :p="modDepth" :size="40" label="Depth" />
           <Knob :p="modRandom" :size="40" label="Character" />
+          <Knob :p="modChaos" :size="40" label="Chaos" />
         </div>
         <p class="mt-2 text-[10px] leading-snug text-[var(--faint)]">
           Character at nothing is a smooth sweep, which detunes the tail. At full it is a random
-          walk, which loosens the same ringing without moving the pitch.
+          walk, which loosens the same ringing without moving the pitch. Chaos is neither: an
+          unsteady transport, drifting well below the rate and fluttering well above it.
         </p>
       </Panel>
 

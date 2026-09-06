@@ -189,7 +189,7 @@ impl Plugin for NoobReverberator {
         &mut self,
         buffer: &mut Buffer,
         _aux: &mut AuxiliaryBuffers,
-        _context: &mut impl ProcessContext<Self>,
+        context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         let Some(ix) = self.ix.as_ref() else {
             return ProcessStatus::Normal;
@@ -198,7 +198,11 @@ impl Plugin for NoobReverberator {
             return ProcessStatus::Normal;
         };
 
-        let settings = dsp::engine::read_settings(audio, ix);
+        let mut settings = dsp::engine::read_settings(audio, ix);
+        // The one thing the parameters cannot say. `None` when the host does
+        // not report a tempo, which the pre-delay treats as "not synced"
+        // rather than assuming a number.
+        settings.tempo = context.transport().tempo.map(|t| t as f32);
         self.reverb.configure(&settings);
 
         let n = buffer.samples();

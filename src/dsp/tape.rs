@@ -106,8 +106,8 @@ impl Tape {
         // The wobble is on the read, not the write: a tape's speed error moves
         // where the head is over the tape, and applying it to both would
         // cancel it.
-        let drift =
-            self.wow.next(self.wow_depth, 0.35) + self.flutter.next(self.flutter_depth, 0.8);
+        let drift = self.wow.next(self.wow_depth, 0.35, 0.0)
+            + self.flutter.next(self.flutter_depth, 0.8, 0.0);
 
         self.line.push(x + self.fb);
 

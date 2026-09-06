@@ -28,6 +28,7 @@ pub mod preset;
 pub mod shape;
 pub mod spring;
 pub mod svf;
+pub mod sync;
 pub mod tape;
 
 #[cfg(test)]
@@ -71,6 +72,7 @@ pub fn bridge_meta(sr: f32, standalone: bool) -> Value {
         "max_t60": decay::MAX_T60,
         "band_shapes": params::BAND_SHAPE_NAMES,
         "shapes": shape::SHAPE_NAMES,
+        "sync": sync::SYNC_NAMES,
         "eras": colour::ERA_NAMES,
         "presets": preset::factory_json(),
         "modes": mode::MODES.iter().map(|m| json!({

@@ -31,6 +31,7 @@ pub struct Diffuser {
     mods: Vec<Modulator>,
     depth: f32,
     random: f32,
+    chaos: f32,
 }
 
 impl Diffuser {
@@ -58,6 +59,7 @@ impl Diffuser {
             mods,
             depth: 0.0,
             random: 0.0,
+            chaos: 0.0,
         }
     }
 
@@ -87,12 +89,13 @@ impl Diffuser {
         }
     }
 
-    pub fn set_modulation(&mut self, fs: f32, rate: f32, depth: f32, random: f32) {
+    pub fn set_modulation(&mut self, fs: f32, rate: f32, depth: f32, random: f32, chaos: f32) {
         for m in &mut self.mods {
             m.set_rate(fs, rate);
         }
         self.depth = depth;
         self.random = random.clamp(0.0, 1.0);
+        self.chaos = chaos.clamp(0.0, 1.0);
     }
 
     #[inline]
@@ -104,7 +107,7 @@ impl Diffuser {
                 // that is gentle on the longest stage does not swing the
                 // shortest one through its whole length.
                 let scale = self.lens[i] / self.lens[0].max(1.0);
-                self.lens[i] + self.mods[i].next(self.depth * scale, self.random)
+                self.lens[i] + self.mods[i].next(self.depth * scale, self.random, self.chaos)
             } else {
                 self.lens[i]
             };

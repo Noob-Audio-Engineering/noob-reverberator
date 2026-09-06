@@ -37,10 +37,15 @@ pub struct Settings {
     pub density: f32,
     pub attack_ms: f32,
     pub predelay_ms: f32,
+    pub predelay_sync: usize,
+    pub predelay_offset: f32,
+    /// What the host says it is playing at, if anything.
+    pub tempo: Option<f32>,
     pub width: f32,
     pub mod_rate: f32,
     pub mod_depth: f32,
     pub mod_random: f32,
+    pub mod_chaos: f32,
     pub early_level: f32,
     pub early_size: f32,
     pub early_absorb: f32,
@@ -90,10 +95,13 @@ pub struct ParamIx {
     pub density: usize,
     pub attack: usize,
     pub predelay: usize,
+    pub predelay_sync: usize,
+    pub predelay_offset: usize,
     pub width: usize,
     pub mod_rate: usize,
     pub mod_depth: usize,
     pub mod_random: usize,
+    pub mod_chaos: usize,
     pub early_level: usize,
     pub early_size: usize,
     pub early_absorb: usize,
@@ -163,10 +171,13 @@ impl ParamIx {
             density: ix("density"),
             attack: ix("attack"),
             predelay: ix("predelay"),
+            predelay_sync: ix("predelay_sync"),
+            predelay_offset: ix("predelay_offset"),
             width: ix("width"),
             mod_rate: ix("mod_rate"),
             mod_depth: ix("mod_depth"),
             mod_random: ix("mod_random"),
+            mod_chaos: ix("mod_chaos"),
             early_level: ix("early_level"),
             early_size: ix("early_size"),
             early_absorb: ix("early_absorb"),
@@ -234,10 +245,15 @@ pub fn read_settings(audio: &AudioHandle, ix: &ParamIx) -> Settings {
         density: p(ix.density) / 100.0,
         attack_ms: p(ix.attack),
         predelay_ms: p(ix.predelay),
+        predelay_sync: p(ix.predelay_sync).round().max(0.0) as usize,
+        predelay_offset: p(ix.predelay_offset) / 100.0,
+        // Filled in by the caller, which is the only one that knows.
+        tempo: None,
         width: p(ix.width) / 100.0,
         mod_rate: p(ix.mod_rate),
         mod_depth: p(ix.mod_depth) / 100.0,
         mod_random: p(ix.mod_random) / 100.0,
+        mod_chaos: p(ix.mod_chaos) / 100.0,
         early_level: p(ix.early_level) / 100.0,
         early_size: p(ix.early_size),
         early_absorb: p(ix.early_absorb) / 100.0,
@@ -333,6 +349,10 @@ pub struct Reverb {
     built: Option<Settings>,
     pre_len: f32,
     attack_gain: f32,
+    /// A follower on the tank's output, which is what tells the attack fade
+    /// that there is nothing left to protect and it may start again.
+    wet_env: f32,
+    wet_k: f32,
     attack_coef: f32,
 }
 
@@ -341,8 +361,7 @@ pub struct Reverb {
 /// mapped onto anywhere above the bottom octave.
 pub const SPEC_N: usize = 1024;
 
-/// How long a pre-delay may be, in milliseconds. Allocated for once.
-const MAX_PREDELAY_MS: f32 = 500.0;
+use super::sync::MAX_PREDELAY_MS;
 
 impl Reverb {
     pub fn new(fs: f32) -> Self {
@@ -386,7 +405,9 @@ impl Reverb {
             taps: vec![0.0; MAX_LINES],
             built: None,
             pre_len: 0.0,
-            attack_gain: 1.0,
+            attack_gain: 0.0,
+            wet_env: 0.0,
+            wet_k: (-1.0f32 / (0.05 * fs)).exp(),
             attack_coef: 0.0,
         }
     }
@@ -412,7 +433,11 @@ impl Reverb {
         for p in &mut self.pre {
             p.clear();
         }
-        self.attack_gain = 1.0;
+        // Closed, not open: this is a build-up, so it starts at nothing and
+        // rises. Set to one it would sit on its own target and the control
+        // would do nothing at all, which is exactly what it did.
+        self.attack_gain = 0.0;
+        self.wet_env = 0.0;
     }
 
     /// Put a mode's settings on top of a [`Settings`]. Everything stays
@@ -436,6 +461,7 @@ impl Reverb {
         s.tape_mix = m.tape;
         s.choir_amount = m.choir;
         s.choir_vowel = m.vowel;
+        s.mod_chaos = m.chaos;
         s.distance = m.distance;
         s.thickness = m.thickness;
         s.bloom = m.bloom;
@@ -476,7 +502,7 @@ impl Reverb {
         }
 
         self.plate
-            .set_modulation(s.mod_rate, s.mod_depth * 40.0, s.mod_random);
+            .set_modulation(s.mod_rate, s.mod_depth * 40.0, s.mod_random, s.mod_chaos);
         for m in &mut self.mods {
             m.set_rate(self.fs, s.mod_rate);
         }
@@ -487,12 +513,23 @@ impl Reverb {
         // this moves them rather than adding a fifth thing that does the same
         // job differently. Pro-R's own description is the specification: "a
         // longer build-up and a more diffuse tail".
+        // Thickness drives the tank's own feedback rather than adding a
+        // saturator in front of it: the difference is that a driven loop
+        // compresses *each pass*, so the tail thickens as it circulates
+        // instead of arriving pre-distorted.
+        self.net.set_drive(s.thickness.clamp(0.0, 1.0));
         let far = s.distance.clamp(0.0, 1.0);
         let density = (s.density + far * (1.0 - s.density) * 0.7).clamp(0.0, 1.0);
         for d in &mut self.diff {
             d.set_scale(size * (1.0 + far * 0.5), 900.0);
             d.set_amount(density);
-            d.set_modulation(self.fs, s.mod_rate * 0.7, s.mod_depth * 12.0, s.mod_random);
+            d.set_modulation(
+                self.fs,
+                s.mod_rate * 0.7,
+                s.mod_depth * 12.0,
+                s.mod_random,
+                s.mod_chaos,
+            );
         }
         for sh in &mut self.shift {
             sh.set_window(s.shift_window);
@@ -509,13 +546,23 @@ impl Reverb {
             s.tape_wobble,
             s.tape_drive,
         );
+        self.bloom.set(s.bloom, s.bloom_time, s.bloom_swell);
+        // The attack is not a control: ducking that takes as long to get out
+        // of the way as it takes to come back is ducking nobody can hear
+        // working, so it is fixed short and only the release is offered ---
+        // which is the one that decides whether the tail returns under the
+        // next word or after it.
+        self.ducker.set(s.duck, 5.0, s.duck_release);
+        self.gate.set(s.gate, s.gate_hold);
         self.choir.set(
             s.choir_vowel,
             s.choir_spread,
             s.choir_amount,
             s.choir_resonance,
         );
-        self.pre_len = (s.predelay_ms.clamp(0.0, MAX_PREDELAY_MS) * self.fs / 1000.0).max(1.0);
+        let pre_ms =
+            super::sync::predelay_ms(s.predelay_sync, s.predelay_ms, s.tempo, s.predelay_offset);
+        self.pre_len = (pre_ms.clamp(0.0, MAX_PREDELAY_MS) * self.fs / 1000.0).max(1.0);
         // A one-pole rise on the wet path. This is not a mode's build-up ---
         // that is a property of the line lengths --- it is the control
         // somebody reaches for when they want the reverb to arrive late, and
@@ -669,7 +716,7 @@ impl Reverb {
             // input grows rather than the tail being faded in. That is why it
             // is here and not on the wet path with the attack.
             let (pl, pr) = if s.bloom > 0.0 {
-                (self.bloom.process(pl), pr)
+                self.bloom.process_stereo(pl, pr)
             } else {
                 (pl, pr)
             };
@@ -715,7 +762,7 @@ impl Reverb {
                         let src = if k % 2 == 0 { a } else { b };
                         self.inject[k] = if k % 4 < 2 { src } else { -src };
                         let d = s.mod_depth * 40.0;
-                        let off = self.mods[k].next(d, s.mod_random);
+                        let off = self.mods[k].next(d, s.mod_random, s.mod_chaos);
                         self.net.modulate(k, off);
                     }
                     self.net
@@ -760,9 +807,24 @@ impl Reverb {
             let mut or = cr + er * s.early_level;
 
             // The attack fade, and then the shape.
+            //
+            // The fade restarts when the tank itself has gone quiet rather
+            // than on every onset. Restarting on an onset would chop the tail
+            // a held chord had already built --- a note arriving into an
+            // existing reverb would silence it and fade it back in --- while
+            // restarting on silence gives what the control is for: a phrase
+            // arriving into nothing builds up instead of appearing.
+            //
+            // Measured before the gain is applied, or the gain would hold
+            // itself down: a fading-in output is a quiet output, and a
+            // detector looking at it would keep deciding the tank is silent.
             if self.attack_coef > 0.0 {
-                let target = 1.0;
-                self.attack_gain = target + (self.attack_gain - target) * self.attack_coef;
+                let wet = ol.abs().max(or.abs());
+                self.wet_env = wet.max(self.wet_env * self.wet_k);
+                if self.wet_env < 1e-5 {
+                    self.attack_gain = 0.0;
+                }
+                self.attack_gain += (1.0 - self.attack_gain) * (1.0 - self.attack_coef);
                 ol *= self.attack_gain;
                 or *= self.attack_gain;
             }
@@ -806,10 +868,14 @@ fn same(a: &Settings, b: &Settings) -> bool {
         && a.density == b.density
         && a.attack_ms == b.attack_ms
         && a.predelay_ms == b.predelay_ms
+        && a.predelay_sync == b.predelay_sync
+        && a.predelay_offset == b.predelay_offset
+        && a.tempo == b.tempo
         && a.width == b.width
         && a.mod_rate == b.mod_rate
         && a.mod_depth == b.mod_depth
         && a.mod_random == b.mod_random
+        && a.mod_chaos == b.mod_chaos
         && a.early_size == b.early_size
         && a.early_absorb == b.early_absorb
         && a.early_taps == b.early_taps

@@ -73,6 +73,10 @@ pub struct Mode {
     pub thickness: f32,
     /// How much the generator in front of the tank swells.
     pub bloom: f32,
+    /// How unsteady the modulation runs. Neither a sweep nor a walk: a drift
+    /// well below the rate with a flutter well above it, which is what stops
+    /// a long tail settling into a steady ring.
+    pub chaos: f32,
 }
 
 /// A mode with everything quiet, to be written over.
@@ -101,6 +105,7 @@ const fn base(name: &'static str, blurb: &'static str, arch: Arch) -> Mode {
         distance: 0.0,
         thickness: 0.0,
         bloom: 0.0,
+        chaos: 0.0,
     }
 }
 
@@ -561,6 +566,60 @@ pub static MODES: &[Mode] = &[
         ..base(
             "Thick Chamber",
             "Driven into its own saturation: denser, warmer, and less polite.",
+            Arch::Network,
+        )
+    },
+    // The last three are one idea: modulation that never repeats. A steady
+    // sweep at a long decay is audible as a sweep, and a random walk loosens
+    // the ring without moving the pitch, so neither of them is *unsteady* ---
+    // they are both regular, one in pitch and one in level. These run the
+    // tank off a drift and a flutter at once, which is the thing a long tail
+    // needs if it is not to settle.
+    Mode {
+        lines: 16,
+        size: 1.6,
+        decay: 3.6,
+        density: 0.75,
+        mod_rate: 0.7,
+        mod_depth: 9.0,
+        mod_random: 0.4,
+        chaos: 0.7,
+        early: 0.28,
+        ..base(
+            "Chaotic Hall",
+            "A hall that will not hold still: the tail wanders instead of ringing.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 12,
+        size: 0.9,
+        decay: 1.9,
+        density: 0.85,
+        mod_rate: 1.1,
+        mod_depth: 6.0,
+        mod_random: 0.35,
+        chaos: 0.8,
+        early: 0.3,
+        ..base(
+            "Chaotic Chamber",
+            "The same restlessness in a small room, where it reads as life rather than drift.",
+            Arch::Network,
+        )
+    },
+    Mode {
+        lines: 14,
+        size: 1.2,
+        decay: 2.8,
+        density: 0.7,
+        mod_rate: 0.8,
+        mod_depth: 7.0,
+        mod_random: 0.5,
+        chaos: 0.55,
+        early: 0.0,
+        ..base(
+            "Chaotic Neutral",
+            "No room in particular, no reflections, and never twice the same.",
             Arch::Network,
         )
     },

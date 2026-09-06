@@ -14,6 +14,7 @@ use super::decay::MAX_BANDS;
 use super::formant::VOWEL_NAMES;
 use super::mode;
 use super::shape::SHAPE_NAMES;
+use super::sync::SYNC_NAMES;
 
 /// The shapes a decay band can have, in index order --- from the shared
 /// crate, so the panel, the host and Noob-Q all name them the same way.
@@ -66,6 +67,14 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .unit("ms")
             .skew(0.5)
             .group("space"),
+        ParamSpec::new("predelay_sync", "Pre-delay Sync")
+            .labels(SYNC_NAMES.to_vec())
+            .group("space"),
+        ParamSpec::new("predelay_offset", "Pre-delay Offset")
+            .range(50.0, 200.0)
+            .default(100.0)
+            .unit("%")
+            .group("space"),
         ParamSpec::new("width", "Width")
             .range(0.0, 200.0)
             .default(100.0)
@@ -86,6 +95,11 @@ pub fn param_specs() -> Vec<ParamSpec> {
         ParamSpec::new("mod_random", "Mod Character")
             .range(0.0, 100.0)
             .default(40.0)
+            .unit("%")
+            .group("modulation"),
+        ParamSpec::new("mod_chaos", "Mod Chaos")
+            .range(0.0, 100.0)
+            .default(0.0)
             .unit("%")
             .group("modulation"),
         ParamSpec::new("early_level", "Early Level")
