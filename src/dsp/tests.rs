@@ -2763,3 +2763,107 @@ fn a_bad_block_from_the_host_does_not_end_the_reverb() {
         println!("  {arch:?}: recovers from NaN, both infinities and 1e30");
     }
 }
+
+/// **The dry path is not delayed, which is why no latency is reported.**
+///
+/// A plug-in that delays its dry signal and tells the host nothing pulls its
+/// whole track out of time with every other one, and it does it silently ---
+/// the reverb sounds correct in solo and the mix goes soft. This plug-in
+/// reports no latency, and that is only honest while the dry signal arrives
+/// when it was sent.
+///
+/// It is easy to lose. Pre-delay, the attack fade, the bloom generator and
+/// the tape all sit in front of the tank, and any of them moved one line
+/// earlier --- so that it processed the input rather than the tank's feed ---
+/// would delay the dry as well without changing anything a decay measurement
+/// can see.
+#[test]
+fn the_dry_signal_is_not_delayed() {
+    use super::engine::Reverb;
+    use super::mode::{Arch, MODES};
+
+    const FS: f32 = 48_000.0;
+
+    for arch in [Arch::Network, Arch::Plate, Arch::Spring, Arch::Early] {
+        let i = MODES.iter().position(|m| m.arch == arch).expect("an arch");
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        s.mode = i;
+        // Dry only. Everything in front of the tank is switched well on, so
+        // that anything sitting in the wrong place would show.
+        s.mix = 0.0;
+        s.predelay_ms = 120.0;
+        s.attack_ms = 200.0;
+        s.bloom = 0.8;
+        s.tape_mix = 0.7;
+
+        let mut rev = Reverb::new(FS);
+        rev.configure(&s);
+        let n = 4_096;
+        let mut l = vec![0.0f32; n];
+        let mut r = vec![0.0f32; n];
+        l[0] = 1.0;
+        r[0] = 1.0;
+        rev.process(&s, &mut l, &mut r);
+
+        let at = l
+            .iter()
+            .position(|v| v.abs() > 0.5)
+            .unwrap_or_else(|| panic!("{arch:?} lost the dry signal entirely"));
+        assert_eq!(
+            at, 0,
+            "{arch:?} put the dry signal {at} samples late, so the plug-in owes \
+             the host a latency report it does not make"
+        );
+        // And nothing else may arrive on the dry path either.
+        let after = l[1..].iter().fold(0.0f32, |a, b| a.max(b.abs()));
+        assert!(
+            after < 1e-6,
+            "{arch:?} let {after:.2e} of something through at mix 0, which is wet \
+             leaking into a dry signal"
+        );
+    }
+    println!("  the dry signal arrives when it was sent, on all four architectures");
+}
+
+/// **Dropping an instance must not hang, and must not leave its worker.**
+///
+/// Every engine owns a thread that does the loss fit off the audio thread.
+/// The worker ends when its job channel disconnects, which happens when the
+/// engine is dropped --- correct by construction, but "by construction" is
+/// what people say before a deadlock. A host creates and destroys instances
+/// constantly: scanning, previewing a preset, undoing an insert. A drop that
+/// blocks does not fail here in a way anybody sees, it freezes the DAW.
+///
+/// This makes and drops fifty engines, each with a fit outstanding, which is
+/// the awkward case: the worker is busy or holding a result nobody will
+/// collect when the receiving end goes away.
+#[test]
+fn dropping_an_engine_with_a_fit_in_flight_does_not_hang() {
+    use super::engine::Reverb;
+    use super::mode::MODES;
+
+    const FS: f32 = 48_000.0;
+    for i in 0..50 {
+        let mode = i % MODES.len();
+        let mut s = plain_settings(mode);
+        Reverb::apply_mode(&mut s, mode);
+        s.mode = mode;
+        // A curve that differs each time, so each instance really does ask
+        // for a fit rather than finding one already done.
+        s.decay = 1.0 + (i % 9) as f32;
+        s.curve.base = s.decay;
+        s.curve.bands[0].on = true;
+        s.curve.bands[0].mult = 1.5 + (i % 5) as f32 * 0.4;
+
+        let mut rev = Reverb::new(FS);
+        rev.configure(&s);
+        // One short block: long enough to ask, far too short to collect.
+        let mut l = vec![0.0f32; 64];
+        let mut r = vec![0.0f32; 64];
+        l[0] = 1.0;
+        rev.process(&s, &mut l, &mut r);
+        drop(rev);
+    }
+    println!("  fifty engines made and dropped mid-fit, none of them stuck");
+}
