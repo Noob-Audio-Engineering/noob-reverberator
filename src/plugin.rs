@@ -153,11 +153,17 @@ impl Default for NoobReverberatorParams {
                                 .unwrap_or_else(|| v.to_string())
                         }));
                     }
+                    if !s.automatable {
+                        ip = ip.non_automatable();
+                    }
                     HostParam::Int(Arc::new(ip))
                 } else {
-                    HostParam::Float(Arc::new(
-                        FloatParam::new(s.name.clone(), s.default, host_range(&s)).with_unit(unit),
-                    ))
+                    let mut fp =
+                        FloatParam::new(s.name.clone(), s.default, host_range(&s)).with_unit(unit);
+                    if !s.automatable {
+                        fp = fp.non_automatable();
+                    }
+                    HostParam::Float(Arc::new(fp))
                 };
                 (s.id.clone(), s.group.clone(), p)
             })
@@ -415,16 +421,38 @@ mod tests {
         for (m, w) in mirrored.iter().zip(want.iter()) {
             assert_eq!(m.0.id, w.id, "the two lists are in different orders");
             if m.0.steps != w.steps {
-                wrong.push(format!("{} host {} page {}", w.id, m.0.steps, w.steps));
+                wrong.push(format!(
+                    "{} steps host {} page {}",
+                    w.id, m.0.steps, w.steps
+                ));
+            }
+            // The fourth field this file used to build a parameter without.
+            // `steps`, the taper, the group and this one were all declared in
+            // the spec list and dropped on the way to nih-plug; each was
+            // invisible until something compared the two ends.
+            if m.0.automatable != w.automatable {
+                wrong.push(format!(
+                    "{} automatable host {} page {}",
+                    w.id, m.0.automatable, w.automatable
+                ));
+            }
+            if m.0.group != w.group {
+                wrong.push(format!(
+                    "{} group host {:?} page {:?}",
+                    w.id, m.0.group, w.group
+                ));
             }
         }
         assert!(
             wrong.is_empty(),
-            "{} parameters reach the plug-in page with the wrong step count,              so a switch is drawn as a knob: {}",
+            "{} parameters reach the plug-in page differently from how they were              declared, so a switch is drawn as a knob or a chooser offered to              automation: {}",
             wrong.len(),
             wrong[..wrong.len().min(6)].join(", ")
         );
-        println!("  {} parameters, step counts intact", want.len());
+        println!(
+            "  {} parameters keep their steps, their group and their automation flag",
+            want.len()
+        );
     }
 
     /// **A parameter has to mean the same thing to the host and to the page.**

@@ -91,8 +91,15 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .unit("dB")
             .group("global"),
         ParamSpec::new("freeze", "Freeze").toggle().group("global"),
+        // **Not automatable, and the reason is what a mode now is.** Choosing
+        // one writes the twenty-odd controls it stands for, the way a preset
+        // does, so a host automating this would be automating one control that
+        // rewrites the others underneath its own lanes. noob-compressorlab
+        // marks its model selector the same way for the same reason. It still
+        // saves and recalls with the session, and the strip still moves it.
         ParamSpec::new("mode", "Mode")
             .labels(mode::names())
+            .not_automatable()
             .group("space"),
         ParamSpec::new("decay", "Decay")
             .range(0.05, 60.0)
