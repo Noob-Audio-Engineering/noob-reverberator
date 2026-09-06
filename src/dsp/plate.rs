@@ -61,6 +61,8 @@ pub struct Plate {
     random: f32,
     chaos: f32,
     feed: [f32; 2],
+    /// How hard the plate is driven. See [`super::drive`].
+    drive: f32,
     fs: f32,
     scale: f32,
 }
@@ -103,6 +105,7 @@ impl Plate {
             random: 0.0,
             chaos: 0.0,
             feed: [0.0, 0.0],
+            drive: 0.0,
             fs,
             scale: 1.0,
         }
@@ -205,6 +208,11 @@ impl Plate {
     }
 
     /// One lap of the figure of eight, in samples.
+    /// 0 leaves the figure of eight linear; 1 is as hard as it is driven.
+    pub fn set_drive(&mut self, amount: f32) {
+        self.drive = amount.clamp(0.0, 1.0);
+    }
+
     pub fn lap(&self) -> f32 {
         self.len1[0] + self.len2[0] + self.ap1_len[0] + self.ap2_len[0]
     }
@@ -212,7 +220,15 @@ impl Plate {
     /// One sample in, a stereo pair out.
     #[inline]
     pub fn process(&mut self, x: f32) -> (f32, f32) {
-        let mut v = x;
+        // The plate is driven twice over, and the first is the one that is
+        // heard. A real plate has an amplifier and a transducer putting the
+        // signal into the steel, and that is where it distorts first ---
+        // before the sheet has done anything. Measured, the loop's own
+        // contribution to this plate's output under a sustained signal is
+        // about three parts in a hundred, so a saturator in the loop alone
+        // moved the output by three per cent and was, fairly, called dead by
+        // the test. The transducer is where the level is.
+        let mut v = super::drive::saturate(x, self.drive, super::drive::PLATE_IN_LEVEL);
         for a in &mut self.input {
             v = a.process(v);
         }
@@ -227,7 +243,11 @@ impl Plate {
             let y = self.ap1[i].process_at(y, len);
             self.d1[i].push(y);
             let a = self.d1[i].read(self.len1[i]);
-            let b = self.loss[i].process(a);
+            let b = super::drive::saturate(
+                self.loss[i].process(a),
+                self.drive,
+                super::drive::PLATE_LEVEL,
+            );
             let c = self.ap2[i].process(b);
             self.d2[i].push(c);
             out[i] = self.d2[i].read(self.len2[i]);

@@ -58,6 +58,8 @@ pub struct Spring {
     len: f32,
     loss: Loss,
     scratch: Scratch,
+    /// How hard the spring's amplifier is driven. See [`super::drive`].
+    drive: f32,
     fs: f32,
     fb: f32,
 }
@@ -72,6 +74,7 @@ impl Spring {
             len: fs * 0.03,
             loss: Loss::default(),
             scratch: Scratch::default(),
+            drive: 0.0,
             fs,
             fb: 0.0,
         }
@@ -134,6 +137,11 @@ impl Spring {
     ///
     /// Negative, the bottom of the band is delayed more and the top comes
     /// back first, which is the descending "boing" a spring is recognised by.
+    /// 0 leaves the cascade linear; 1 is as hard as it is driven.
+    pub fn set_drive(&mut self, amount: f32) {
+        self.drive = amount.clamp(0.0, 1.0);
+    }
+
     pub fn set_shape(&mut self, tension: f32, sections: usize, delay_ms: f32) {
         let a = -tension.clamp(0.05, 0.95);
         self.used = sections.clamp(1, MAX_SECTIONS);
@@ -152,7 +160,11 @@ impl Spring {
         }
         self.line.push(v);
         let out = self.line.read(self.len);
-        self.fb = self.loss.process(out);
+        self.fb = super::drive::saturate(
+            self.loss.process(out),
+            self.drive,
+            super::drive::SPRING_LEVEL,
+        );
         out
     }
 }

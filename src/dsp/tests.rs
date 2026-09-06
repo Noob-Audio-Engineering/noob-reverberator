@@ -1837,7 +1837,9 @@ fn every_character_a_mode_declares_reaches_the_output() {
 
     // Name, whether the mode declares it, and how to take it out.
     type Off = fn(&mut Settings);
-    let characters: [(&str, fn(&super::mode::Mode) -> bool, Off); 10] = [
+    type Declared = fn(&super::mode::Mode) -> bool;
+    type Character = (&'static str, Declared, Off);
+    let characters: [Character; 10] = [
         ("early", |m| m.early > 0.0, |s| s.early_level = 0.0),
         ("shift", |m| m.shift_mix > 0.0, |s| s.shift_mix = 0.0),
         ("era", |m| m.era_amount > 0.0, |s| s.era_amount = 0.0),
@@ -2169,4 +2171,106 @@ fn every_parameter_changes_the_sound() {
         worst.1,
         worst.0
     );
+}
+
+/// **A driven tank has to thicken without moving its decay.**
+///
+/// Thickness puts a saturator in the feedback path of all three tanks, which
+/// is the one place a nonlinearity can undo the fit: the loss filters are
+/// solved for a loss per trip, and that arithmetic assumes the trip is
+/// linear. Squeeze the trip and every mode decays at a length other than the
+/// one it asks for --- quietly, because the reverb still sounds like a
+/// reverb.
+///
+/// So this holds the two halves of the design apart. The decay must not move
+/// when the tank is driven, because [`super::drive::saturate`] has unity
+/// slope at the origin and a dying tail lives at the origin. And the loud
+/// part must be compressed, or the control is a no-op that happens to pass
+/// the first half.
+#[test]
+fn a_driven_tank_thickens_without_moving_its_decay() {
+    use super::mode::{Arch, MODES};
+
+    const FS: f32 = 48_000.0;
+
+    // The curve alone, before any tank: unity slope at zero, and squashing
+    // above it. This is the property the rest of the test depends on.
+    let small = super::drive::saturate(1e-4, 1.0, 1.0) / 1e-4;
+    assert!(
+        (small - 1.0).abs() < 1e-3,
+        "a quiet sample came back at {small:.5} of itself, so the fit is off"
+    );
+    let loud = super::drive::saturate(1.0, 1.0, 1.0);
+    assert!(
+        (0.2..0.35).contains(&loud),
+        "a unit sample came back at {loud:.3}, which is not a squeeze"
+    );
+
+    // The two halves are measured with two different signals, and that is
+    // the design rather than a convenience. An impulse leaves the tank at a
+    // peak of about 0.03, which is squarely in the linear part of the curve
+    // --- that is the small-signal case the decay fit is solved for, and the
+    // decay must not move there. A sustained signal near full scale drives it
+    // to about 1.0, which is where the squeeze is supposed to happen.
+    // Measuring both on an impulse, which is what this test did first, checks
+    // the saturator at a level where it is meant to do nothing and concludes
+    // it does nothing.
+    fn sustained(s: &super::engine::Settings, secs: f32) -> Vec<f32> {
+        use super::engine::Reverb;
+        let mut rev = Reverb::new(FS);
+        rev.configure(s);
+        let n = (FS * secs) as usize;
+        let mut l = vec![0.0f32; n];
+        let mut r = vec![0.0f32; n];
+        let mut seed = 1u32;
+        for i in 0..n {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let v = ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.7;
+            l[i] = v;
+            r[i] = v;
+        }
+        rev.process(s, &mut l, &mut r);
+        l
+    }
+
+    for arch in [Arch::Network, Arch::Plate, Arch::Spring] {
+        let i = MODES.iter().position(|m| m.arch == arch).expect("an arch");
+        let mut s = plain_settings(i);
+        s.mix = 1.0;
+        s.decay = 2.0;
+        s.curve.base = 2.0;
+
+        let mut t60 = [0.0f32; 2];
+        let mut peak = [0.0f32; 2];
+        for (k, thickness) in [0.0f32, 1.0].into_iter().enumerate() {
+            s.thickness = thickness;
+            let ir = render_engine(&s, 6.0);
+            t60[k] = super::measure::t60_in_band(&ir, FS, 1_000.0)
+                .unwrap_or_else(|| panic!("{arch:?} at thickness {thickness} gave no tail"));
+            peak[k] = sustained(&s, 2.0)
+                .iter()
+                .fold(0.0f32, |a, b| a.max(b.abs()));
+        }
+
+        let moved = (t60[1] / t60[0]).log2().abs();
+        assert!(
+            moved < 0.15,
+            "{arch:?} decays in {:.2} s clean and {:.2} s driven ({moved:.2} octaves), \
+             so the saturator is eating the fit",
+            t60[0],
+            t60[1]
+        );
+        assert!(
+            peak[1] < peak[0] * 0.9,
+            "{arch:?} peaked at {:.3} clean and {:.3} driven under a loud signal, \
+             so nothing was squeezed",
+            peak[0],
+            peak[1]
+        );
+        println!(
+            "  {arch:?}: {:.2} s clean, {:.2} s driven ({moved:.3} octaves); \
+             loud peak {:.3} -> {:.3}",
+            t60[0], t60[1], peak[0], peak[1]
+        );
+    }
 }

@@ -517,7 +517,10 @@ impl Reverb {
         // saturator in front of it: the difference is that a driven loop
         // compresses *each pass*, so the tail thickens as it circulates
         // instead of arriving pre-distorted.
-        self.net.set_drive(s.thickness.clamp(0.0, 1.0));
+        let thick = s.thickness.clamp(0.0, 1.0);
+        self.net.set_drive(thick);
+        self.plate.set_drive(thick);
+        self.spring.set_drive(thick);
         let far = s.distance.clamp(0.0, 1.0);
         let density = (s.density + far * (1.0 - s.density) * 0.7).clamp(0.0, 1.0);
         for d in &mut self.diff {

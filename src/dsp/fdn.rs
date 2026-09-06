@@ -44,11 +44,7 @@ pub struct Fdn {
     /// loop compresses each trip, so a loud tail is *denser* than a quiet one
     /// rather than the same tail scaled up.
     ///
-    /// Placed in the feedback path, after the loss filter, so it acts once
-    /// per trip. The curve is unity-slope at the origin, which matters more
-    /// than its shape: the drawn decay is a small-signal property, and a
-    /// saturator that squeezed the last of the tail would make every mode
-    /// that uses this decay at a length other than the one it asks for.
+    /// See [`super::drive`] for why the curve is shaped the way it is.
     drive: f32,
     n: usize,
     fs: f32,
@@ -169,16 +165,11 @@ impl Fdn {
         householder(&mut self.buf[..self.n]);
 
         for (i, (&x, inject)) in self.buf[..self.n].iter().zip(input).enumerate() {
-            let mut v = self.loss[i].process(x);
-            if self.drive > 0.0 {
-                // Held to unity slope at zero so the decay the curve asks for
-                // is the decay a dying tail gets. `g` is how far up the curve
-                // a signal of a given level sits: at drive 1 a unit sample is
-                // squeezed to about 0.76, and a tail at a hundredth of that
-                // is untouched.
-                let g = 1.0 + 3.0 * self.drive;
-                v = (v * g).tanh() / g;
-            }
+            let v = super::drive::saturate(
+                self.loss[i].process(x),
+                self.drive,
+                super::drive::NETWORK_LEVEL,
+            );
             self.lines[i].push(v + inject);
         }
     }

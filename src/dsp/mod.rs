@@ -10,6 +10,7 @@ pub mod colour;
 pub mod decay;
 pub mod delay;
 pub mod diffuse;
+pub mod drive;
 pub mod duck;
 pub mod early;
 pub mod engine;
