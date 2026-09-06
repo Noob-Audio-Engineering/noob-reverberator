@@ -466,6 +466,17 @@ impl Reverb {
         s.thickness = m.thickness;
         s.bloom = m.bloom;
         s.curve.base = m.decay;
+        // The mode's own decay curve, in the bottom slots. Everything above
+        // them belongs to whoever drew it.
+        for (k, t) in m.tone.iter().enumerate() {
+            s.curve.bands[k] = Band {
+                on: (t.mult - 1.0).abs() > 1e-6,
+                shape: t.shape,
+                freq: t.freq,
+                mult: t.mult,
+                width: t.width,
+            };
+        }
     }
 }
 

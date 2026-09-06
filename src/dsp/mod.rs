@@ -76,7 +76,12 @@ pub fn bridge_meta(sr: f32, standalone: bool) -> Value {
         "sync": sync::SYNC_NAMES,
         "eras": colour::ERA_NAMES,
         "presets": preset::factory_json(),
-        "modes": mode::MODES.iter().map(|m| json!({
+        // `set` is the mode. Without it the page could only tell the engine
+        // *which* mode, and the engine only ever read that to pick an
+        // architecture --- so every network mode was the same reverb. The
+        // page applies these through the ordinary parameter path, exactly as
+        // it applies a preset, so the host sees the knobs move.
+        "modes": mode::MODES.iter().enumerate().map(|(i, m)| json!({
             "name": m.name,
             "blurb": m.blurb,
             "arch": match m.arch {
@@ -85,6 +90,7 @@ pub fn bridge_meta(sr: f32, standalone: bool) -> Value {
                 mode::Arch::Spring => "spring",
                 mode::Arch::Early => "early",
             },
+            "set": mode::param_set(i),
         })).collect::<Vec<_>>(),
     })
 }

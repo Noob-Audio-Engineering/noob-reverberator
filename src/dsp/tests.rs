@@ -1916,21 +1916,25 @@ fn every_mode_decays_at_the_length_it_claims() {
         s.shape = super::shape::Kind::Off;
         s.bloom = 0.0;
         s.attack_ms = 0.0;
-        let ir = render_engine(&s, (m.decay * 2.5).clamp(2.0, 14.0));
+        // **The curve at 1 kHz, not the base.** A mode now carries its own
+        // decay curve --- that is what stopped the thirty-two of them being
+        // tonally one reverb --- so the seconds it claims at any one
+        // frequency are what the curve says there, and only a mode with a
+        // flat curve claims its base. Holding a shelved mode to its base
+        // measures the shelf and calls it an error.
+        let asked = s.curve.t60(1_000.0);
+        let ir = render_engine(&s, (asked * 2.5).clamp(2.0, 14.0));
         let Some(t60) = super::measure::t60_in_band(&ir, FS, 1_000.0) else {
             panic!("{} gave a tail nothing could be measured on", m.name);
         };
-        let octaves = (t60 / m.decay).log2().abs();
+        let octaves = (t60 / asked).log2().abs();
         if octaves > worst.0 {
             worst = (octaves, m.name);
         }
         assert!(
             octaves < 0.5,
-            "{} asks for {:.2} s and gives {:.2} s ({:.2} octaves out)",
-            m.name,
-            m.decay,
-            t60,
-            octaves
+            "{} asks for {asked:.2} s at 1 kHz and gives {t60:.2} s ({octaves:.2} octaves out)",
+            m.name
         );
         checked += 1;
     }
@@ -2866,4 +2870,145 @@ fn dropping_an_engine_with_a_fit_in_flight_does_not_hang() {
         drop(rev);
     }
     println!("  fifty engines made and dropped mid-fit, none of them stuck");
+}
+
+/// **The mode the page applies has to be the mode the engine means.**
+///
+/// There are two descriptions of what a mode is: `Reverb::apply_mode`, which
+/// writes engine units into a `Settings`, and `mode::param_set`, which lists
+/// the same thing in the plain units the controls use, for the page to write
+/// through the parameter path. Two descriptions of one thing drift, and the
+/// drift is silent --- a mode would simply be a little wrong in the plug-in
+/// and right in the benchmark, or the other way round.
+///
+/// So this drives the real path: every entry of `param_set` is written into an
+/// actual bridge, read back out through `read_settings`, and held against what
+/// `apply_mode` produces. Anything in one and not the other fails here.
+#[test]
+fn a_mode_applied_through_the_controls_is_the_mode_the_engine_means() {
+    use super::engine::{Reverb, read_settings};
+    use super::mode::{MODES, param_set};
+
+    for (i, m) in MODES.iter().enumerate() {
+        // What the engine says the mode is.
+        let (bridge, ix) = super::build_bridge("Noob Reverberator", 48_000.0, true);
+        let audio = bridge.take_audio().expect("the audio handle is taken once");
+        let mut want = read_settings(&audio, &ix);
+        Reverb::apply_mode(&mut want, i);
+
+        // What the page would produce, through the controls.
+        let (bridge, ix) = super::build_bridge("Noob Reverberator", 48_000.0, true);
+        for (id, v) in param_set(i) {
+            let at = bridge
+                .index_of(&id)
+                .unwrap_or_else(|| panic!("{} sets `{id}`, which is not a control", m.name));
+            bridge.set_param(at, v);
+        }
+        let audio = bridge.take_audio().expect("the audio handle is taken once");
+        let got = read_settings(&audio, &ix);
+
+        let name = m.name;
+        let close = |a: f32, b: f32, what: &str| {
+            assert!(
+                (a - b).abs() <= 1e-3 * a.abs().max(b.abs()).max(1.0),
+                "{name}: {what} is {b} through the controls and {a} in the engine"
+            );
+        };
+        close(want.decay, got.decay, "decay");
+        close(want.size, got.size, "size");
+        close(want.density, got.density, "density");
+        close(want.attack_ms, got.attack_ms, "attack");
+        close(want.mod_rate, got.mod_rate, "mod rate");
+        close(want.mod_depth, got.mod_depth, "mod depth");
+        close(want.mod_random, got.mod_random, "mod random");
+        close(want.mod_chaos, got.mod_chaos, "chaos");
+        close(want.early_level, got.early_level, "early level");
+        close(want.shift, got.shift, "shift");
+        close(want.shift_mix, got.shift_mix, "shift mix");
+        close(want.era_amount, got.era_amount, "era amount");
+        close(want.tape_mix, got.tape_mix, "tape");
+        close(want.choir_amount, got.choir_amount, "choir");
+        close(want.choir_vowel, got.choir_vowel, "vowel");
+        close(want.distance, got.distance, "distance");
+        close(want.thickness, got.thickness, "thickness");
+        close(want.bloom, got.bloom, "bloom");
+        close(want.curve.base, got.curve.base, "curve base");
+        assert_eq!(want.lines, got.lines, "{name}: lines");
+        assert_eq!(want.shape, got.shape, "{name}: envelope shape");
+        assert_eq!(want.era, got.era, "{name}: era");
+
+        // And the curve, which is the part that makes the modes tonally
+        // different at all.
+        for k in 0..super::mode::MODE_TONES {
+            let (a, b) = (want.curve.bands[k], got.curve.bands[k]);
+            assert_eq!(a.on, b.on, "{name}: band {} on", k + 1);
+            if a.on {
+                assert_eq!(a.shape, b.shape, "{name}: band {} shape", k + 1);
+                close(a.freq, b.freq, "band frequency");
+                close(a.mult, b.mult, "band decay");
+                close(a.width, b.width, "band width");
+            }
+        }
+    }
+    println!(
+        "  {} modes mean the same thing through the controls as in the engine",
+        MODES.len()
+    );
+}
+
+/// **Thirty-two names have to be thirty-two sounds.**
+///
+/// Driven the way the plug-in drives it --- set the mode and nothing else ---
+/// this engine produced **four distinct sounds from thirty-two names**: every
+/// network mode was bit-for-bit identical to every other, because the only
+/// thing the engine read the mode parameter for was which architecture to
+/// run, and nothing ever applied the rest of the table.
+///
+/// That cannot come back quietly. This applies each mode the way the page now
+/// does, and requires every pair to differ audibly.
+#[test]
+fn every_mode_is_a_different_sound() {
+    use super::engine::Reverb;
+    use super::mode::MODES;
+
+    let render = |i: usize| -> Vec<f32> {
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        s.mode = i;
+        s.mix = 1.0;
+        render_engine(&s, 2.0)
+    };
+    let all: Vec<Vec<f32>> = (0..MODES.len()).map(render).collect();
+
+    let mut worst = (f32::MAX, "", "");
+    for i in 0..all.len() {
+        for j in (i + 1)..all.len() {
+            let d = energy(
+                &all[i]
+                    .iter()
+                    .zip(all[j].iter())
+                    .map(|(a, b)| a - b)
+                    .collect::<Vec<_>>(),
+            );
+            let level = energy(&all[i]).max(energy(&all[j])).max(1e-9);
+            let rel = d / level;
+            assert!(
+                rel > 0.05,
+                "{} and {} differ by {rel:.3} of their own level, which is the same reverb \
+                 under two names",
+                MODES[i].name,
+                MODES[j].name
+            );
+            if rel < worst.0 {
+                worst = (rel, MODES[i].name, MODES[j].name);
+            }
+        }
+    }
+    println!(
+        "  every pair of {} modes differs; closest is {} / {} at {:.2}",
+        MODES.len(),
+        worst.1,
+        worst.2,
+        worst.0
+    );
 }

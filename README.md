@@ -167,7 +167,21 @@ disagreeing about which way a tilt points on the first comparison.
 **The axes the survey found the modes actually vary on** — attack, decay,
 density, size — are controls rather than presets of a hidden algorithm.
 Thirty-two modes are places to stand in that space, and everything a mode sets
-stays movable afterwards. Seventeen presets go further, each a mode plus the
+stays movable afterwards --- which is literally true, because **selecting a
+mode writes its controls**, through the same parameter path a person turning
+the knobs uses. It did not always: the mode control used to set only itself,
+the engine read it only to pick one of the four architectures, and measured,
+the plug-in made *four distinct sounds from thirty-two names* --- every network
+mode bit-for-bit identical to every other. `examples/mode_identity.rs` is what
+found that and is what stops it coming back.
+
+**Each mode carries its own decay curve**, and that is the axis that separates
+them. A hall loses its top to the air and its soft surfaces; a plate is bright
+and poor at the bottom; a spring is a resonance in the middle with little
+either side; the 1979 mode is dark behind a band limit. Before those existed
+the tilt of the decay curve --- how much longer the bottom of the band rings
+than the top --- spanned a quarter of an octave across the whole table, so
+thirty-two names were tonally one reverb. It now spans nearly three. Seventeen presets go further, each a mode plus the
 handful of controls it moves; they are stored that way rather than as a dump of
 every parameter, because a dump has to be re-issued whenever a parameter is
 added and silently restores a default over something you set.

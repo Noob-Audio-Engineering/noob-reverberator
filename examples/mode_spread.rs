@@ -18,6 +18,12 @@ use noob_reverberator::dsp::mode::MODES;
 
 const FS: f32 = 48_000.0;
 const BANDS: [f32; 6] = [125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0];
+/// A finer set for the tail's shape. Six octave bands cannot see a vowel ---
+/// Chorale's formants sit between them --- and a shape is what separates a
+/// choir from a hall far more than an average brightness does.
+const SHAPE_BANDS: [f32; 12] = [
+    100.0, 160.0, 250.0, 400.0, 630.0, 1000.0, 1600.0, 2500.0, 4000.0, 6300.0, 8000.0, 10000.0,
+];
 
 /// What one mode sounds like, in numbers.
 struct Face {
@@ -27,6 +33,9 @@ struct Face {
     t60: [f32; 6],
     /// The tail's brightness: spectral centroid in log2 hertz.
     centroid: f32,
+    /// The tail's spectral shape, in decibels about its own mean. This is
+    /// what tells a vowel from a shelf.
+    shape: [f32; 12],
     /// How long the reverb takes to reach its loudest, in log2 milliseconds.
     build: f32,
     /// Echo density: how filled-in the first 80 ms is, 0 sparse to 1 solid.
@@ -37,7 +46,7 @@ struct Face {
     width: f32,
 }
 
-fn render(i: usize) -> (Vec<f32>, Vec<f32>) {
+fn render(i: usize, music: bool) -> (Vec<f32>, Vec<f32>) {
     let (bridge, ix) = noob_reverberator::dsp::build_bridge("probe", FS, true);
     let audio = bridge.take_audio().expect("the audio handle");
     let mut s = read_settings(&audio, &ix);
@@ -49,19 +58,55 @@ fn render(i: usize) -> (Vec<f32>, Vec<f32>) {
     let n = (FS * 4.0) as usize;
     let mut l = vec![0.0f32; n];
     let mut r = vec![0.0f32; n];
-    l[0] = 1.0;
-    r[0] = 1.0;
+    if music {
+        // Four hundred milliseconds near full scale, then silence: loud
+        // enough to drive a tank into its saturation and with an ending, so
+        // the gate and the ducker have something to act on.
+        let mut seed = 5u32;
+        for k in 0..(FS * 0.4) as usize {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let v = ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.6;
+            l[k] = v;
+            r[k] = v * 0.85;
+        }
+    } else {
+        l[0] = 1.0;
+        r[0] = 1.0;
+    }
     rev.process(&s, &mut l, &mut r);
     (l, r)
 }
 
 fn face(i: usize) -> Face {
-    let (l, r) = render(i);
-    face_from(MODES[i].name, i, &l, &r)
+    // Two renders, because the two halves want different signals. T60 wants
+    // an impulse. Everything else wants music: thickness and the tape are
+    // deliberately linear at the level an impulse leaves in the tank, and the
+    // ducker, the gate and the bloom need a signal that starts and stops. The
+    // first version of this probe used the impulse for both and reported
+    // Chamber and Thick Chamber as the same reverb, which is exactly what a
+    // saturator that is doing its job looks like when nothing drives it.
+    let (il, ir) = render(i, false);
+    let (ml, mr) = render(i, true);
+    let mut f = face_from(MODES[i].name, i, &ml, &mr);
+    let mono: Vec<f32> = il
+        .iter()
+        .zip(ir.iter())
+        .map(|(a, b)| 0.5 * (a + b))
+        .collect();
+    for (k, hz) in BANDS.iter().enumerate() {
+        f.t60[k] = t60_in_band(&mono, FS, *hz).unwrap_or(0.01).max(0.01).log2();
+    }
+    // Echo density and build-up are properties of an impulse response and
+    // mean nothing measured through a burst that is still sounding.
+    let imp = face_from(MODES[i].name, i, &il, &ir);
+    f.density = imp.density;
+    f.build = imp.build;
+    f
 }
 
 fn face_from(name: &'static str, i: usize, l: &[f32], r: &[f32]) -> Face {
     let mono: Vec<f32> = l.iter().zip(r.iter()).map(|(a, b)| 0.5 * (a + b)).collect();
+    let mono_ref: &[f32] = &mono;
 
     let mut t60 = [0.0f32; 6];
     for (k, f) in BANDS.iter().enumerate() {
@@ -78,6 +123,22 @@ fn face_from(name: &'static str, i: usize, l: &[f32], r: &[f32]) -> Face {
         den += e;
     }
     let centroid = if den > 0.0 { num / den } else { 10.0 };
+
+    // **After the input has stopped.** Measured across the whole render the
+    // burst itself dominates every band, so every mode came out wearing the
+    // shape of the noise that fed it --- which is how Cloud and Choir Loft,
+    // one a bare tank and the other a pitch-shifted choir, read as the same
+    // spectrum.
+    let tail_from = ((FS * 0.6) as usize).min(mono_ref.len());
+    let tail: &[f32] = &mono_ref[tail_from..];
+    let mut shape = [0.0f32; 12];
+    for (k, f) in SHAPE_BANDS.iter().enumerate() {
+        shape[k] = 20.0 * band_energy(tail, *f).max(1e-9).log10();
+    }
+    let mean = shape.iter().sum::<f32>() / shape.len() as f32;
+    for v in shape.iter_mut() {
+        *v -= mean;
+    }
 
     // Build-up: where the envelope peaks, in milliseconds.
     let env = envelope(&mono, (FS * 0.005) as usize);
@@ -108,6 +169,7 @@ fn face_from(name: &'static str, i: usize, l: &[f32], r: &[f32]) -> Face {
         arch: format!("{:?}", MODES[i].arch).to_lowercase(),
         t60,
         centroid,
+        shape,
         build,
         density,
         movement,
@@ -180,23 +242,33 @@ fn correlation(a: &[f32], b: &[f32]) -> f32 {
     sab / (saa.sqrt() * sbb.sqrt())
 }
 
-/// Distance between two modes, in units where 1.0 is "clearly a different
-/// reverb". Each term is scaled by how much of it a listener needs to notice.
+/// Distance between two modes, in units where each term is divided by roughly
+/// how much of that quantity a listener needs before they notice.
+///
+/// **This is a proxy and its absolute scale is not validated.** The per-term
+/// scalings are my judgement, not a listening test, so "0.3" does not reliably
+/// mean "indistinguishable" --- it under-weights things that live in a few
+/// bands, and reads Choir Loft as close to Cloud when one is a pitch-shifted
+/// choir and the other a bare tank. Use it to find *candidates* worth
+/// listening to and to watch the spread move, not as a verdict. The objective
+/// claim lives in `mode_identity`, which compares the audio itself.
 fn distance(a: &Face, b: &Face) -> f32 {
     let mut d = 0.0f32;
     // A third of an octave of decay time in any band is audible.
     for k in 0..6 {
         d += ((a.t60[k] - b.t60[k]) / 0.33).powi(2);
     }
-    // A third of an octave of brightness.
-    d += ((a.centroid - b.centroid) / 0.33).powi(2);
+    // The tail's spectral shape: three decibels in any band is plain.
+    for k in 0..12 {
+        d += ((a.shape[k] - b.shape[k]) / 3.0).powi(2);
+    }
     // A factor of two in build-up time.
     d += (a.build - b.build).powi(2);
     // A fifth of the range of density, movement and width.
     d += ((a.density - b.density) / 0.2).powi(2);
     d += ((a.movement - b.movement) / 2.0).powi(2);
     d += ((a.width - b.width) / 0.2).powi(2);
-    (d / 11.0).sqrt()
+    (d / 22.0).sqrt()
 }
 
 /// The same mode with a decay curve on it, to show what the axis is worth.

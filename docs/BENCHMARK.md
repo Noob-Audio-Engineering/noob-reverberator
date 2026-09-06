@@ -60,40 +60,40 @@ The bands that read worst sit on a shelf's corner, and they read **long**. Part 
 
 A mode sets the decay, the size, the density and the rest; this runs each one as shipped and measures what comes out. The Reflections mode has no tail by design, so it has nothing to measure and says so rather than being given a number.
 
-| mode | architecture | drawn | measured at 1 kHz | worst band |
-|---|---|---|---|---|
-| Concert Hall | network | 3.20 s | 3.21 s | 0.014 oct at 125 Hz |
-| Bright Hall | network | 3.00 s | 3.00 s | 0.023 oct at 125 Hz |
-| Room | network | 1.40 s | 1.40 s | 0.020 oct at 125 Hz |
-| Chamber | network | 2.20 s | 2.20 s | 0.017 oct at 500 Hz |
-| Plate | plate | 2.40 s | 1.98 s | 0.300 oct at 500 Hz |
-| Small Plate | plate | 1.20 s | 1.05 s | 0.284 oct at 125 Hz |
-| Spring | spring | 1.80 s | 1.80 s | 0.146 oct at 4000 Hz |
+| mode | architecture | drawn | measured at 1 kHz | worst band | curve only |
+|---|---|---|---|---|---|
+| Concert Hall | network | 3.20 s | 2.96 s | 0.019 oct at 1000 Hz | 0.019 oct |
+| Bright Hall | network | 3.00 s | 2.99 s | 0.016 oct at 125 Hz | 0.016 oct |
+| Room | network | 1.40 s | 1.36 s | 0.008 oct at 1000 Hz | 0.008 oct |
+| Chamber | network | 2.20 s | 2.10 s | 0.017 oct at 500 Hz | 0.017 oct |
+| Plate | plate | 2.40 s | 1.97 s | 0.278 oct at 1000 Hz | 0.278 oct |
+| Small Plate | plate | 1.20 s | 1.05 s | 0.200 oct at 4000 Hz | 0.200 oct |
+| Spring | spring | 1.80 s | 2.21 s | 0.086 oct at 4000 Hz | 0.086 oct |
 | Reflections | early | 0.35 s | no tail to measure | — |
-| Ambience | network | 1.10 s | 1.11 s | 0.085 oct at 125 Hz |
-| Cloud | network | 12.00 s | 12.00 s | 0.002 oct at 125 Hz |
-| Echoverb | network | 9.00 s | 8.99 s | 0.005 oct at 125 Hz |
-| Shimmer | network | 4.00 s | 4.00 s | 0.002 oct at 500 Hz |
-| Undertow | network | 5.00 s | 5.00 s | 0.003 oct at 500 Hz |
-| Gated | network | 1.60 s | 1.61 s | 0.009 oct at 4000 Hz |
-| Reverse | network | 2.00 s | 2.01 s | 0.014 oct at 125 Hz |
-| Swell | network | 6.00 s | 5.99 s | 0.025 oct at 125 Hz |
-| Nineteen Seventy Nine | network | 3.50 s | 2.92 s | 0.264 oct at 1000 Hz |
-| Nineteen Eighty Four | plate | 2.60 s | 2.11 s | 0.318 oct at 4000 Hz |
-| Magneto | network | 2.20 s | 2.46 s | 0.240 oct at 500 Hz |
-| Chorale | network | 7.00 s | 7.00 s | 0.005 oct at 125 Hz |
-| Choir Loft | network | 9.00 s | 8.99 s | 0.003 oct at 125 Hz |
-| Tape Chamber | network | 2.00 s | 1.79 s | 0.162 oct at 1000 Hz |
-| Long Spring | spring | 3.00 s | 3.00 s | 0.110 oct at 4000 Hz |
-| Supermassive | network | 30.00 s | 29.99 s | 0.000 oct at 1000 Hz |
-| Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.201 oct at 1000 Hz |
-| Tight Ambience | network | 0.45 s | 0.46 s | 0.040 oct at 500 Hz |
-| Bloom | network | 3.60 s | 3.60 s | 0.015 oct at 125 Hz |
-| Far Hall | network | 5.00 s | 5.01 s | 0.036 oct at 125 Hz |
-| Thick Chamber | network | 2.40 s | 2.40 s | 0.011 oct at 125 Hz |
-| Chaotic Hall | network | 3.60 s | 3.60 s | 0.004 oct at 125 Hz |
-| Chaotic Chamber | network | 1.90 s | 1.91 s | 0.009 oct at 1000 Hz |
-| Chaotic Neutral | network | 2.80 s | 2.80 s | 0.002 oct at 500 Hz |
+| Ambience | network | 1.10 s | 1.10 s | 0.085 oct at 125 Hz | 0.085 oct |
+| Cloud | network | 12.00 s | 10.32 s | 0.038 oct at 1000 Hz | 0.038 oct |
+| Echoverb | network | 9.00 s | 8.79 s | 0.008 oct at 4000 Hz | 0.008 oct |
+| Shimmer | network | 4.00 s | 4.02 s | 0.028 oct at 4000 Hz | 0.028 oct |
+| Undertow | network | 5.00 s | 3.34 s | 0.113 oct at 1000 Hz | 0.113 oct |
+| Gated | network | 1.60 s | 1.61 s | 0.011 oct at 4000 Hz | 0.011 oct |
+| Reverse | network | 2.00 s | 2.00 s | 0.014 oct at 125 Hz | 0.014 oct |
+| Swell | network | 6.00 s | 5.66 s | 0.021 oct at 125 Hz | 0.021 oct |
+| Nineteen Seventy Nine | network | 3.50 s | 2.46 s | 0.880 oct at 4000 Hz | 0.034 oct |
+| Nineteen Eighty Four | plate | 2.60 s | 2.08 s | 0.379 oct at 125 Hz | 0.281 oct |
+| Magneto | network | 2.20 s | 2.29 s | 0.750 oct at 4000 Hz | 0.029 oct |
+| Chorale | network | 7.00 s | 9.62 s | 0.056 oct at 500 Hz | 0.036 oct |
+| Choir Loft | network | 9.00 s | 8.68 s | 0.067 oct at 125 Hz | 0.010 oct |
+| Tape Chamber | network | 2.00 s | 1.42 s | 0.946 oct at 4000 Hz | 0.032 oct |
+| Long Spring | spring | 3.00 s | 3.92 s | 0.124 oct at 125 Hz | 0.124 oct |
+| Supermassive | network | 30.00 s | 24.77 s | 0.021 oct at 125 Hz | 0.021 oct |
+| Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.212 oct at 125 Hz | 0.212 oct |
+| Tight Ambience | network | 0.45 s | 0.46 s | 0.040 oct at 500 Hz | 0.040 oct |
+| Bloom | network | 3.60 s | 3.53 s | 0.010 oct at 125 Hz | 0.010 oct |
+| Far Hall | network | 5.00 s | 3.75 s | 0.113 oct at 1000 Hz | 0.113 oct |
+| Thick Chamber | network | 2.40 s | 2.19 s | 0.020 oct at 1000 Hz | 0.021 oct |
+| Chaotic Hall | network | 3.60 s | 3.43 s | 0.009 oct at 1000 Hz | 0.009 oct |
+| Chaotic Chamber | network | 1.90 s | 1.81 s | 0.021 oct at 1000 Hz | 0.021 oct |
+| Chaotic Neutral | network | 2.80 s | 2.80 s | 0.002 oct at 500 Hz | 0.002 oct |
 
 ### What the era colouring does to the reading
 
@@ -101,16 +101,18 @@ The colouring sits on the tank's output, not inside its feedback, so it cannot c
 
 | mode | era | measured at 1 kHz |
 |---|---|---|
-| Nineteen Seventy Nine | on | 2.92 s |
-| Nineteen Seventy Nine | off | 3.51 s |
-| Nineteen Eighty Four | on | 2.11 s |
-| Nineteen Eighty Four | off | 2.16 s |
+| Nineteen Seventy Nine | on | 2.46 s |
+| Nineteen Seventy Nine | off | 3.07 s |
+| Nineteen Eighty Four | on | 2.08 s |
+| Nineteen Eighty Four | off | 2.15 s |
 
 With the colouring turned down, the network era mode measures its drawn decay to within a hundredth of a second. So the colouring is changing what the measurement can see and not what the tank is doing: reducing the word length and the rate inside it raises the floor that the energy curve is fitted against, and a curve that runs into a floor early reads as a shorter decay. The plate era mode moves hardly at all, because what is wrong there is the plate's lap and not the era.
 
 
 The tape modes read **long**, and that is the tape rather than an error: it sits in front of the tank, so every repeat is a fresh excitation and the energy in the room really does last past the tank's own decay. What is measured there is the tail of an echo into a reverb, which is a different quantity from the reverb's decay, and is the point of the machine.
 
+
+**Worst band is the mode as it ships and curve only is the same mode with everything that colours the measurement taken out** --- the tape's repeats, the era's raised noise floor, the choir, the shifter. Where the two disagree it is the colouring being read as decay, not the fit missing its target: Tape Chamber measures 0.95 octaves out at 4 kHz with its tape running and 0.03 without it, because the repeats put energy back into the top of the band long after the tank has let go of it. That is the tape doing its job. The curve-only column is the one to read as the decay fit's error.
 
 The plate is the loosest of the four, and its own module comments say why: its lap runs through Schroeder allpasses, and the loss is fitted to one number for a lap while an allpass of delay m has a group delay that swings between m(1-g)/(1+g) and m(1+g)/(1-g) as the frequency moves. Two of those numbers have been tried: the raw lengths, which are the average over frequency and read 0.32 octaves long, and the value at DC, which is the extreme and read 0.20 short. Neither is wrong about the allpass and both are wrong about the lap, because with m in the hundreds that swing completes a dozen times inside one octave band, so evaluating it anywhere in particular gives an arbitrary point on it rather than a better one. What is left is published rather than tuned away with a fudge factor.
 

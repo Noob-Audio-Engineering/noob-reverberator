@@ -23,6 +23,7 @@ import {
 } from '@noob-audio-engineering/noob-vst-webgui-framework/vue';
 import DecayCurve from './DecayCurve.vue';
 import Panel from './Panel.vue';
+import ModeStrip from './ModeStrip.vue';
 import Presets from './Presets.vue';
 import { meta, modes } from '../composables/useReverb.js';
 
@@ -121,7 +122,6 @@ const inert = computed(() => {
 });
 
 const list = modes();
-const modeNames = list.map((x) => x.name);
 // `mode.index` and not `mode.value`: a parameter handle is a `reactive`
 // object whose computed fields are already unwrapped, so `.value` on one is
 // `undefined`. It read as index nought, so the architecture was always
@@ -160,7 +160,7 @@ const arch = computed(() => current.value.arch ?? 'network');
     <!-- The modes, given their own row: eighteen of them do not belong in a
          corner of another panel. -->
     <div class="shrink-0 rounded-xl border border-[var(--line)] bg-[var(--panel)] px-2 py-1.5">
-      <Segmented :p="mode" :labels="modeNames" class="text-[10px]" />
+      <ModeStrip class="text-[10px]" />
     </div>
 
     <!-- The decay curve, given the room it deserves -->

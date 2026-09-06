@@ -143,8 +143,14 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .log_like()
             .decimals(2)
             .group("modulation"),
+        // To a hundred and fifty rather than a hundred. The mode table writes
+        // this in samples of delay-line sweep and a hundred per cent is
+        // twenty of them; Supermassive asks for twenty-four, so at a ceiling
+        // of a hundred that mode was one no one could reach by hand --- and
+        // `a_mode_applied_through_the_controls` caught it as a mode that
+        // meant one thing in the engine and another on the panel.
         ParamSpec::new("mod_depth", "Mod Depth")
-            .range(0.0, 100.0)
+            .range(0.0, 150.0)
             .default(30.0)
             .unit("%")
             .group("modulation"),

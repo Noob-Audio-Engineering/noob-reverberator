@@ -264,7 +264,7 @@ nothing to measure and says so rather than being given a number.\n"
     );
     let _ = writeln!(
         out,
-        "| mode | architecture | drawn | measured at 1 kHz | worst band |\n|---|---|---|---|---|"
+        "| mode | architecture | drawn | measured at 1 kHz | worst band | curve only |\n|---|---|---|---|---|---|"
     );
 
     let bands = [125.0f32, 500.0, 1_000.0, 4_000.0];
@@ -283,6 +283,20 @@ nothing to measure and says so rather than being given a number.\n"
         // below.
         let secs = (s.curve.base * 2.5).clamp(4.0, 45.0);
         let rows = measure(&s, secs, &bands);
+        // The same mode with everything that colours the *measurement* taken
+        // out --- the tape's repeats, the era's noise floor, the choir, the
+        // shifter. Those are part of the mode and belong in the column beside
+        // this one; they are not the decay curve missing its target, and
+        // reporting them as if they were blamed the fit for the tank.
+        let mut bare = s;
+        bare.era_amount = 0.0;
+        bare.tape_mix = 0.0;
+        bare.choir_amount = 0.0;
+        bare.shift_mix = 0.0;
+        bare.thickness = 0.0;
+        let bare_worst = worst(&measure(&bare, secs, &bands))
+            .map(|(w, _)| format!("{w:.3} oct"))
+            .unwrap_or_else(|| "---".into());
         let at1k = rows
             .iter()
             .find(|(f, _, _)| (*f - 1_000.0).abs() < 1.0)
@@ -292,7 +306,7 @@ nothing to measure and says so rather than being given a number.\n"
             (Some(g), Some((w, at))) => {
                 let _ = writeln!(
                     out,
-                    "| {} | {arch} | {:.2} s | {g:.2} s | {w:.3} oct at {at:.0} Hz |",
+                    "| {} | {arch} | {:.2} s | {g:.2} s | {w:.3} oct at {at:.0} Hz | {bare_worst} |",
                     m.name, s.curve.base
                 );
             }
@@ -316,7 +330,9 @@ point of the machine.\n"
     );
     let _ = writeln!(
         out,
-        "\nThe plate is the loosest of the four, and its own module comments say why: its \
+        "\n**Worst band is the mode as it ships and curve only is the same mode with everything that colours the measurement taken out** --- the tape's repeats, the era's raised noise floor, the choir, the shifter. Where the two disagree it is the colouring being read as decay, not the fit missing its target: Tape Chamber measures 0.95 octaves out at 4 kHz with its tape running and 0.03 without it, because the repeats put energy back into the top of the band long after the tank has let go of it. That is the tape doing its job. The curve-only column is the one to read as the decay fit's error.
+
+The plate is the loosest of the four, and its own module comments say why: its \
 lap runs through Schroeder allpasses, and the loss is fitted to one number for a lap while \
 an allpass of delay m has a group delay that swings between m(1-g)/(1+g) and m(1+g)/(1-g) \
 as the frequency moves. Two of those numbers have been tried: the raw lengths, which are \
