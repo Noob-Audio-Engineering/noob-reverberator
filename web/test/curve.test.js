@@ -10,6 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { logGrid } from '../src/grid.js';
+import { modePlan } from '../src/mode.js';
 
 const LO = 20;
 const HI = 20000;
@@ -38,4 +39,39 @@ test('the middle point is the geometric centre, which is what a log axis means',
 
 test('a single point does not divide by zero', () => {
   assert.equal(logGrid(0, 1, LO, HI), LO);
+});
+
+/**
+ * A mode has to write something.
+ *
+ * The reverb shipped with a mode strip that set the `mode` control and
+ * nothing else, and the engine read that only to choose one of four
+ * architectures --- so twenty-five of the thirty-two modes were bit-for-bit
+ * the same reverb. Nothing failed, because nothing checked that choosing a
+ * mode *does* anything.
+ */
+test('a mode plans every write the manifest gives it', () => {
+  const mode = {
+    name: 'Concert Hall',
+    set: [
+      ['decay', 3.2],
+      ['size', 160],
+      ['band1_mult', 0.45],
+    ],
+  };
+  const plan = modePlan(mode, () => true);
+  assert.equal(plan.length, 3);
+  assert.deepEqual(plan[0], ['decay', 3.2]);
+});
+
+test('a control this build does not have is dropped, not thrown', () => {
+  const mode = { set: [['decay', 3.2], ['gone', 1]] };
+  const plan = modePlan(mode, (id) => id !== 'gone');
+  assert.deepEqual(plan, [['decay', 3.2]]);
+});
+
+test('a mode with no set at all plans nothing rather than exploding', () => {
+  assert.deepEqual(modePlan(undefined, () => true), []);
+  assert.deepEqual(modePlan({}, () => true), []);
+  assert.deepEqual(modePlan({ set: null }, () => true), []);
 });

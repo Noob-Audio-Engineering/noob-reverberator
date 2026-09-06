@@ -24,6 +24,7 @@
  * mode's values instead of its own.
  */
 import { getClient, meta, useParam } from '../composables/useReverb.js';
+import { modePlan } from '../mode.js';
 
 const mode = useParam('mode');
 const list = meta().modes ?? [];
@@ -34,9 +35,9 @@ function pick(i) {
   mode.begin();
   mode.setIndex(i);
   mode.end();
-  for (const [id, value] of m?.set ?? []) {
-    // A build whose control list has moved on: skip rather than throw.
-    if (!client.hasParam(id)) continue;
+  // A build whose control list has moved on drops those writes rather than
+  // throwing; `modePlan` is where that happens, and where it is tested.
+  for (const [id, value] of modePlan(m, (id) => client.hasParam(id))) {
     const h = useParam(id);
     h.begin();
     h.setPlain(value);
