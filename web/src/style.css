@@ -149,3 +149,24 @@ body {
   border-color: var(--accent);
   color: #ede9fe;
 }
+
+/* The preset button. Its own rules, because it is not a toggle. */
+.preset-button {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--dim);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.preset-button:hover {
+  border-color: var(--accent-dim);
+  color: #cfc9e3;
+}
+.preset-button.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: #ede9fe;
+}

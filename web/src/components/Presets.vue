@@ -33,12 +33,11 @@ function apply(p) {
 
 <template>
   <div class="relative">
-    <button
-      class="noob-vst-webgui-framework-toggle button"
-      :class="{ 'is-on': open }"
-      type="button"
-      @click="open = !open"
-    >
+    <!-- Its own class, not the framework's toggle. It is not a toggle: it
+         opens a list. Borrowing the toggle's class made it indistinguishable
+         from Freeze and Bypass to anything selecting by class, which is a
+         small lie that cost me an afternoon of off-by-one selectors. -->
+    <button class="preset-button" :class="{ 'is-on': open }" type="button" @click="open = !open">
       {{ applied || 'Presets' }}
     </button>
     <div

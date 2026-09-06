@@ -42,6 +42,9 @@ const hasRealised = ref(false);
 
 const dragging = ref(-1);
 const hovering = ref(-1);
+/// Where a drag began, for the shapes that move relatively rather than to a
+/// position.
+const dragFrom = { y: 0, mult: 1 };
 
 const m = meta();
 const F_LO = m.fit_bottom ?? 20;
@@ -60,6 +63,27 @@ const yOf = (t) => {
   return size.value.h * (1 - Math.log2(c / T_LO) / Math.log2(T_HI / T_LO));
 };
 const tOf = (y) => T_LO * Math.pow(T_HI / T_LO, 1 - y / Math.max(1, size.value.h));
+
+/**
+ * Where a band's handle sits, in frequency.
+ *
+ * For every shape but one it is the band's own corner or centre, which is
+ * where its amount means something. A **tilt** has no centre: its shape is
+ * zero at the corner and opposite at the two ends, so a handle there sits on
+ * a part of the curve the control cannot move. Dragging it drove Decay from
+ * 1.00x to its maximum of 10.00x in one gesture and the marker never moved,
+ * because the drag divides by the curve's value at the handle and that value
+ * was the base decay whatever the tilt was doing.
+ *
+ * So a tilt's handle sits two octaves above its corner, on the side the
+ * control brightens, where the curve does move with the amount.
+ */
+function handleFreq(b) {
+  return b.shape.index === TILT ? b.freq.plain * 4 : b.freq.plain;
+}
+
+/** The index of the tilt shape in the shared crate's table. */
+const TILT = 4;
 
 const GRID_F = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 const GRID_T = [0.1, 0.3, 1, 3, 10, 30];
@@ -154,8 +178,9 @@ function draw() {
     // nothing, silently, which is how this canvas came to draw no band
     // markers and ignore every drag.
     if (!b.on.on) return;
-    const x = xOf(b.freq.plain);
-    const y = yOf(valueAt(b.freq.plain));
+    const hf = handleFreq(b);
+    const x = xOf(hf);
+    const y = yOf(valueAt(hf));
     const r = i === dragging.value || i === hovering.value ? 9 : 6;
     g.beginPath();
     g.arc(x, y, r, 0, Math.PI * 2);
@@ -193,7 +218,8 @@ function pick(ev) {
   let bestD = 18;
   bands.forEach((b, i) => {
     if (!b.on.on) return;
-    const d = Math.hypot(xOf(b.freq.plain) - x, yOf(valueAt(b.freq.plain)) - y);
+    const hf = handleFreq(b);
+    const d = Math.hypot(xOf(hf) - x, yOf(valueAt(hf)) - y);
     if (d < bestD) {
       bestD = d;
       best = i;
@@ -206,6 +232,8 @@ function onDown(ev) {
   const { i } = pick(ev);
   if (i < 0) return;
   dragging.value = i;
+  dragFrom.y = ev.clientY;
+  dragFrom.mult = bands[i].mult.plain;
   bands[i].freq.begin();
   bands[i].mult.begin();
   window.addEventListener('pointermove', onMove);
@@ -215,16 +243,37 @@ function onDown(ev) {
 function onMove(ev) {
   const i = dragging.value;
   if (i < 0) return;
+  const b = bands[i];
   const rect = canvas.value.getBoundingClientRect();
-  const f = fOf(ev.clientX - rect.left);
-  // The axis is decay time and the band holds a multiplier, so the drag is
-  // converted through whatever the curve would be *without* this band ---
-  // otherwise dragging would mean something different depending on where the
-  // Decay control was, which is not what the axis says.
-  const withBand = valueAt(bands[i].freq.plain);
-  const without = withBand / Math.max(0.01, bands[i].mult.plain);
-  bands[i].freq.setPlain(f);
-  bands[i].mult.setPlain(tOf(ev.clientY - rect.top) / Math.max(0.01, without));
+
+  // Horizontal is always the band's own frequency. A tilt's handle is drawn
+  // two octaves above it, so the drag puts that back.
+  const under = fOf(ev.clientX - rect.left);
+  b.freq.setPlain(b.shape.index === TILT ? under / 4 : under);
+
+  if (b.shape.index === TILT) {
+    // A tilt has no centre, so there is no frequency at which "the curve
+    // reads `mult` times the base" and nothing to invert. The alternative
+    // would be to work the band's shape out here, and that is the engine's
+    // arithmetic written a second time on the page --- the one thing this
+    // panel is built to avoid.
+    //
+    // So a tilt is dragged **relatively**: a fixed distance doubles the
+    // amount. It needs to know nothing about the shape, and the handle still
+    // follows the pointer, because the curve under it moves with the amount.
+    const perDoubling = size.value.h / 6;
+    const k = Math.pow(2, (dragFrom.y - ev.clientY) / perDoubling);
+    b.mult.setPlain(dragFrom.mult * k);
+    return;
+  }
+
+  // Everything else has a centre where the curve reads exactly `mult` times
+  // what it would without this band, so the drag inverts exactly. Converted
+  // through the curve without the band, so dragging means the same thing
+  // wherever the Decay control happens to be.
+  const withBand = valueAt(b.freq.plain);
+  const without = withBand / Math.max(0.01, b.mult.plain);
+  b.mult.setPlain(tOf(ev.clientY - rect.top) / Math.max(0.01, without));
 }
 
 function onUp() {
