@@ -49,6 +49,12 @@ jobs:
         run: |
           cargo check --features plugin
           cargo check --features plugin --release
+          # Not just a check: the tests that compare what the *host* is told
+          # about a parameter against what the page is told only exist behind
+          # this feature, and `cargo test` above does not build it. They
+          # found seventy discrete controls being handed over as continuous
+          # knobs, which no test running without the feature could see.
+          cargo test --features plugin
 
   windows:
     name: plug-in feature (Windows)

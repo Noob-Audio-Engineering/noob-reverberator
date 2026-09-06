@@ -20,6 +20,62 @@ use super::sync::SYNC_NAMES;
 /// crate, so the panel, the host and Noob-Q all name them the same way.
 pub use super::decay::SHAPE_NAMES as BAND_SHAPE_NAMES;
 
+/// A logarithmic-feeling taper that a host can express **exactly**.
+///
+/// [`Taper::Log`] is `min * (max / min)^n`. nih-plug has no such range: its
+/// nearest is `Skewed`, a power law `min + (max - min) * n^(1/factor)`, and no
+/// power law follows a logarithm closely over a wide range. Declaring `Log`
+/// and handing the host a skew therefore gives two different controls with one
+/// name --- measured, `shift_window` was 3.2% of its lane apart between the
+/// standalone, which reads this list directly, and the plug-in, whose page is
+/// rebuilt from what the host was given.
+///
+/// So the list declares the power law rather than the logarithm, and both
+/// sides use the same curve. What is lost is the difference between a true
+/// logarithm and the closest power law to it, which is a couple of per cent of
+/// knob travel; what is gained is that there is only one curve to be right
+/// about. The alternative --- keeping `Log` here and living with the gap ---
+/// leaves a plug-in and a standalone that do not agree about where a knob is.
+trait LogLike {
+    /// The best power law approximation to a logarithm over this parameter's
+    /// own range. Call it after `range`, which is where the ends come from.
+    fn log_like(self) -> Self;
+}
+
+impl LogLike for ParamSpec {
+    fn log_like(self) -> Self {
+        let (min, max) = (self.min, self.max);
+        if !(min > 0.0 && max > min) {
+            return self;
+        }
+        let span = max - min;
+        // Minimise the *worst* error over the lane rather than matching one
+        // point. Matching the halfway point is the usual closed form --- it is
+        // what JUCE's `setSkewForCentre` does --- and it is worse here,
+        // because the two curves cross in the middle and diverge either side:
+        // on `decay` it left 2.6% where this leaves 2.2%.
+        let worst_for = |factor: f32| {
+            (0..=64)
+                .map(|i| {
+                    let n = i as f32 / 64.0;
+                    let want = min * (max / min).powf(n);
+                    let got = min + span * n.powf(factor.recip());
+                    (want - got).abs() / span
+                })
+                .fold(0.0f32, f32::max)
+        };
+        let mut best = (f32::MAX, 1.0f32);
+        for i in 0..=400 {
+            let factor = 0.02 + i as f32 * (2.0 - 0.02) / 400.0;
+            let e = worst_for(factor);
+            if e < best.0 {
+                best = (e, factor);
+            }
+        }
+        self.skew(best.1)
+    }
+}
+
 /// Every parameter, in order.
 pub fn param_specs() -> Vec<ParamSpec> {
     let mut v = vec![
@@ -42,7 +98,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(0.05, 60.0)
             .default(2.4)
             .unit("s")
-            .log()
+            .log_like()
             .decimals(2)
             .group("space"),
         ParamSpec::new("size", "Size")
@@ -84,7 +140,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(0.01, 10.0)
             .default(0.7)
             .unit("Hz")
-            .log()
+            .log_like()
             .decimals(2)
             .group("modulation"),
         ParamSpec::new("mod_depth", "Mod Depth")
@@ -138,7 +194,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(1024.0, 32768.0)
             .default(16384.0)
             .unit("sa")
-            .log()
+            .log_like()
             .integer()
             .group("shift"),
         ParamSpec::new("shape", "Shape")
@@ -148,7 +204,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(10.0, 4000.0)
             .default(400.0)
             .unit("ms")
-            .log()
+            .log_like()
             .group("shape"),
         ParamSpec::new("era", "Era")
             .labels(ERA_NAMES.to_vec())
@@ -177,7 +233,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(20.0, 2000.0)
             .default(320.0)
             .unit("ms")
-            .log()
+            .log_like()
             .group("tape"),
         ParamSpec::new("tape_heads", "Tape Heads")
             .range(1.0, 4.0)
@@ -238,7 +294,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(20.0, 2000.0)
             .default(250.0)
             .unit("ms")
-            .log()
+            .log_like()
             .group("dynamics"),
         ParamSpec::new("gate", "Auto Gate")
             .range(0.0, 100.0)
@@ -249,7 +305,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(20.0, 3000.0)
             .default(300.0)
             .unit("ms")
-            .log()
+            .log_like()
             .group("dynamics"),
         ParamSpec::new("bloom", "Bloom")
             .range(0.0, 100.0)
@@ -260,13 +316,13 @@ pub fn param_specs() -> Vec<ParamSpec> {
             .range(10.0, 600.0)
             .default(120.0)
             .unit("ms")
-            .log()
+            .log_like()
             .group("bloom"),
         ParamSpec::new("bloom_swell", "Bloom Swell")
             .range(50.0, 4000.0)
             .default(600.0)
             .unit("ms")
-            .log()
+            .log_like()
             .group("bloom"),
         ParamSpec::new("lines", "Lines")
             .range(4.0, 16.0)
@@ -296,7 +352,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
                 .range(20.0, 20_000.0)
                 .default(default_band_freq(i))
                 .unit("Hz")
-                .log()
+                .log_like()
                 .group(g),
         );
         v.push(
@@ -304,7 +360,7 @@ pub fn param_specs() -> Vec<ParamSpec> {
                 .range(0.1, 10.0)
                 .default(1.0)
                 .unit("x")
-                .log()
+                .log_like()
                 .decimals(2)
                 .group(g),
         );

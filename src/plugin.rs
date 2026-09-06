@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use include_dir::{Dir, include_dir};
 use nih_plug::prelude::*;
-use noob_vst_webgui_framework::Assets;
+use noob_vst_webgui_framework::{Assets, Taper};
 use noob_vst_webgui_framework_nih::{
     EditorConfig, PluginHost, StoreSlot, UiStoreParams, noob_identity, stereo_or_mono_io,
     ui_store_fields,
@@ -41,8 +41,82 @@ fn ui_lookup(path: &str) -> Option<&'static [u8]> {
 /// Generated rather than written out: the standalone, the page and the host
 /// must agree about ids, ranges and defaults, and the only way to be sure of
 /// that is for there to be one place they come from.
+/// Turn a [`ParamSpec`]'s taper into the range nih-plug will give the host.
+///
+/// **Every parameter used to be `FloatRange::Linear` regardless of what its
+/// spec said**, which is a declared-and-ignored control of a subtler kind than
+/// a knob wired to nothing: the plain values were all correct, so the reverb
+/// sounded right and nothing measured wrong. What was wrong was the shape of
+/// the host's automation lane. `decay` runs from 0.1 to 30 seconds
+/// logarithmically, and drawn linearly the whole useful part of it --- every
+/// setting under three seconds --- lives in the bottom tenth of the lane,
+/// where it cannot be drawn or nudged.
+///
+/// Changing this does **not** disturb a saved session: nih-plug serialises
+/// `unmodulated_plain_value` and restores with `set_plain_value`, so a project
+/// holding 2.4 seconds gets 2.4 seconds back whatever the mapping is. Existing
+/// automation *lanes* move, because those are stored as normalised positions,
+/// and there is no way to fix the curve without that.
+fn host_range(s: &noob_vst_webgui_framework::ParamSpec) -> FloatRange {
+    match s.taper {
+        Taper::Linear | Taper::Table => FloatRange::Linear {
+            min: s.min,
+            max: s.max,
+        },
+        // nih-plug's skew is `min + (max - min) * norm^(1/factor)`, which is
+        // the framework's `Skew` written the same way round.
+        Taper::Skew(k) if k > 0.0 => FloatRange::Skewed {
+            min: s.min,
+            max: s.max,
+            factor: k,
+        },
+        Taper::Skew(_) => FloatRange::Linear {
+            min: s.min,
+            max: s.max,
+        },
+        // `dsp::params` no longer declares a true logarithm --- see `LogLike`
+        // there --- because nih-plug cannot express one and two curves under
+        // one name is worse than one curve that is not quite a logarithm. The
+        // arm stays so that a spec written elsewhere still maps to something
+        // sensible rather than silently to linear.
+        Taper::Log => {
+            let (min, max) = (s.min.max(f32::MIN_POSITIVE), s.max);
+            let mid = (min * max).sqrt();
+            let k = (mid - min) / (max - min);
+            if k > 0.0 && k < 1.0 {
+                FloatRange::Skewed {
+                    min,
+                    max,
+                    factor: 0.5f32.ln() / k.ln(),
+                }
+            } else {
+                FloatRange::Linear { min, max }
+            }
+        }
+    }
+}
+
+/// One parameter as the host sees it.
+///
+/// **A switch has to be a switch.** Everything here used to be a `FloatParam`,
+/// and `FloatParam::step_count()` is `None` by construction, so every discrete
+/// control reached the host --- and, through `mirror_params`, the plug-in's own
+/// page --- claiming to be continuous. Seventy of them: the thirty-two-way mode
+/// strip, Shape, Era, the pre-delay division, both toggles, and every band's
+/// on switch and shape. In a host that is a mode strip drawn as a knob and an
+/// automation lane that can land between two modes.
+///
+/// The standalone did not have the bug and could not show it either, because
+/// it builds its page from `dsp::params` directly. Only the plug-in goes
+/// through `param_map`, so only the plug-in was wrong, and a screenshot of the
+/// standalone is not a screenshot of the plug-in.
+enum HostParam {
+    Float(Arc<FloatParam>),
+    Int(Arc<IntParam>),
+}
+
 pub struct NoobReverberatorParams {
-    params: Vec<(String, Arc<FloatParam>)>,
+    params: Vec<(String, String, HostParam)>,
     ui_store: StoreSlot,
 }
 
@@ -51,15 +125,41 @@ impl Default for NoobReverberatorParams {
         let params = dsp::params::param_specs()
             .into_iter()
             .map(|s| {
-                let range = FloatRange::Linear {
-                    min: s.min,
-                    max: s.max,
-                };
                 // The unit has to outlive the parameter, and the spec does
                 // not: nih-plug keeps a `&'static str`.
                 let unit: &'static str = Box::leak(s.unit.clone().into_boxed_str());
-                let p = FloatParam::new(s.name.clone(), s.default, range).with_unit(unit);
-                (s.id.clone(), Arc::new(p))
+                let p = if s.steps >= 2 {
+                    // A discrete parameter's plain values are its indices, so
+                    // the range is exactly the one the spec already carries.
+                    let mut ip = IntParam::new(
+                        s.name.clone(),
+                        s.default.round() as i32,
+                        IntRange::Linear {
+                            min: s.min.round() as i32,
+                            max: s.max.round() as i32,
+                        },
+                    )
+                    .with_unit(unit);
+                    if !s.labels.is_empty() {
+                        // Names rather than numbers, in the host's own
+                        // parameter list as well as on the page --- the page
+                        // reads them back out through
+                        // `normalized_value_to_string`.
+                        let labels = s.labels.clone();
+                        ip = ip.with_value_to_string(Arc::new(move |v| {
+                            labels
+                                .get(v.max(0) as usize)
+                                .cloned()
+                                .unwrap_or_else(|| v.to_string())
+                        }));
+                    }
+                    HostParam::Int(Arc::new(ip))
+                } else {
+                    HostParam::Float(Arc::new(
+                        FloatParam::new(s.name.clone(), s.default, host_range(&s)).with_unit(unit),
+                    ))
+                };
+                (s.id.clone(), s.group.clone(), p)
             })
             .collect();
         NoobReverberatorParams {
@@ -84,12 +184,14 @@ unsafe impl Params for NoobReverberatorParams {
     fn param_map(&self) -> Vec<(String, ParamPtr, String)> {
         self.params
             .iter()
-            .map(|(id, p)| {
-                (
-                    id.clone(),
-                    ParamPtr::FloatParam(Arc::as_ptr(p) as *mut FloatParam),
-                    String::new(),
-                )
+            .map(|(id, group, p)| {
+                let ptr = match p {
+                    HostParam::Float(f) => ParamPtr::FloatParam(Arc::as_ptr(f) as *mut FloatParam),
+                    HostParam::Int(i) => ParamPtr::IntParam(Arc::as_ptr(i) as *mut IntParam),
+                };
+                // The group travels too. It was an empty string, so the
+                // plug-in's page lost the grouping the standalone's page has.
+                (id.clone(), ptr, group.clone())
             })
             .collect()
     }
@@ -295,3 +397,97 @@ impl ClapPlugin for NoobReverberator {
 
 nih_export_vst3!(NoobReverberator);
 nih_export_clap!(NoobReverberator);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the plug-in's own page is told about each parameter, which is not
+    /// what the standalone is told: `mirror_params` rebuilds the specs from
+    /// the nih-plug parameters, so the page in a host sees whatever
+    /// `param_map` says rather than what `dsp::params` says.
+    #[test]
+    fn the_plugin_page_is_told_about_the_discrete_parameters() {
+        let params = NoobReverberatorParams::default();
+        let mirrored = noob_vst_webgui_framework_nih::mirror_params(&params);
+        let want = dsp::params::param_specs();
+        let mut wrong = Vec::new();
+        for (m, w) in mirrored.iter().zip(want.iter()) {
+            assert_eq!(m.0.id, w.id, "the two lists are in different orders");
+            if m.0.steps != w.steps {
+                wrong.push(format!("{} host {} page {}", w.id, m.0.steps, w.steps));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "{} parameters reach the plug-in page with the wrong step count,              so a switch is drawn as a knob: {}",
+            wrong.len(),
+            wrong[..wrong.len().min(6)].join(", ")
+        );
+        println!("  {} parameters, step counts intact", want.len());
+    }
+
+    /// **A parameter has to mean the same thing to the host and to the page.**
+    ///
+    /// They arrive by different routes. The standalone builds its page
+    /// straight from `dsp::params`; the plug-in's page is rebuilt by
+    /// `mirror_params` out of whatever this file hands nih-plug. Those were
+    /// not the same mapping --- every parameter was `FloatRange::Linear`
+    /// whatever its spec said --- and nothing caught it, because the plain
+    /// value is right under either one and only the *shape of the lane* was
+    /// wrong: the same decay control read 1.7 seconds at half travel in the
+    /// standalone and 15 in a host.
+    ///
+    /// This walks the real path rather than reconstructing one, so it also
+    /// covers the discrete parameters, whose mapping does not go through
+    /// `host_range` at all.
+    #[test]
+    fn the_host_and_the_page_agree_on_every_parameter() {
+        let params = NoobReverberatorParams::default();
+        let mirrored = noob_vst_webgui_framework_nih::mirror_params(&params);
+        let want = dsp::params::param_specs();
+        assert_eq!(
+            mirrored.len(),
+            want.len(),
+            "the two lists are different lengths"
+        );
+
+        let mut worst = (0.0f32, String::new());
+        for (m, w) in mirrored.iter().zip(want.iter()) {
+            assert_eq!(m.0.id, w.id, "the two lists are in different orders");
+            for step in 0..=20 {
+                let norm = step as f32 / 20.0;
+                let page = w.denormalize(norm);
+                let host = m.0.denormalize(norm);
+                // Against the width of the range: an absolute tolerance is
+                // meaningless across parameters running 0..1 and 20..3000.
+                let span = (w.max - w.min).abs().max(1e-6);
+                let off = (page - host).abs() / span;
+                if off > worst.0 {
+                    worst = (off, format!("{} at {norm:.2}", w.id));
+                }
+                // A thousandth of a lane. The two sides now use the same
+                // curve rather than two approximations of one --- see
+                // `LogLike` in `dsp::params` --- so anything above floating
+                // point noise is a real disagreement.
+                //
+                // What this catches is what was here: a logarithmic control
+                // handed to the host as a linear one, 44% of its range out at
+                // the midpoint, and a switch handed over as a continuous knob.
+                assert!(
+                    off < 1e-3,
+                    "`{}` at {norm:.2} of the lane is {page} to the standalone and \
+                     {host} to the plug-in, {:.1}% of its range apart",
+                    w.id,
+                    off * 100.0
+                );
+            }
+        }
+        println!(
+            "  {} parameters map identically end to end, worst {:.2}% ({})",
+            want.len(),
+            worst.0 * 100.0,
+            worst.1
+        );
+    }
+}
