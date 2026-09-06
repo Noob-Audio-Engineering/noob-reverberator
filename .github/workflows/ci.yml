@@ -54,7 +54,12 @@ jobs:
           # this feature, and `cargo test` above does not build it. They
           # found seventy discrete controls being handed over as continuous
           # knobs, which no test running without the feature could see.
-          cargo test --features plugin
+          #
+          # Only the plug-in module, not the whole suite again. The feature
+          # gates nothing but `mod plugin`, so every DSP test behaves
+          # identically under it and running all of them twice adds ten
+          # minutes to say the same thing.
+          cargo test --features plugin --lib plugin::
 
   windows:
     name: plug-in feature (Windows)
