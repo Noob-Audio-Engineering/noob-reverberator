@@ -457,8 +457,11 @@ const legend = computed(() =>
       @dblclick="onDoubleClick"
     />
     <BandPanel />
-    <!-- What the canvas does, said once, where somebody looking at it is. -->
-    <div class="pointer-events-none absolute left-3 top-2 text-[10px] text-[var(--faint)]">
+    <!-- What the canvas does, said once, where somebody looking at it is.
+         Indented past the seconds gutter: the axis labels are drawn on the
+         canvas at its left edge, and at the top of the plot the longest of
+         them sat underneath this line. -->
+    <div class="pointer-events-none absolute left-14 top-2 text-[10px] text-[var(--faint)]">
       <span v-if="noTail" class="italic">
         this architecture has no tail, so there is no decay to shape
       </span>
