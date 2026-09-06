@@ -159,15 +159,18 @@ disagreeing about which way a tilt points on the first comparison.
 
 **The axes the survey found the modes actually vary on** — attack, decay,
 density, size — are controls rather than presets of a hidden algorithm.
-Twenty-nine modes are places to stand in that space, and everything a mode sets
-stays movable afterwards. Twelve presets go further, each a mode plus the
+Thirty-two modes are places to stand in that space, and everything a mode sets
+stays movable afterwards. Seventeen presets go further, each a mode plus the
 handful of controls it moves; they are stored that way rather than as a dump of
 every parameter, because a dump has to be re-issued whenever a parameter is
 added and silently restores a default over something you set.
 
-**Modulation** is two things on one control: a smooth sweep, which detunes the
-tail, and a random walk, which loosens the same ringing without moving the
-pitch. **Era** is a bandwidth, a word length and a rate inside the tank,
+**Modulation** is three things on two controls: a smooth sweep, which detunes
+the tail; a random walk, which loosens the same ringing without moving the
+pitch; and chaos, which is neither, being an unsteady transport that drifts
+well below the rate and flutters well above it. Three modes are built on it,
+because a very long tail settles into a ring that a regular modulator --- one
+regular in pitch, one regular in level --- does not stop. **Era** is a bandwidth, a word length and a rate inside the tank,
 applied to whichever architecture is running. **Shape** is the machines that
 are not spaces at all — gate, reverse, ramp, swoosh, swell. **Shift** puts a
 transposed copy back into the feedback, which is what a shimmer is.

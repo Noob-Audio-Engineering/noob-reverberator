@@ -575,13 +575,135 @@ fn every_preset_names_a_mode_and_parameters_that_exist() {
             );
         }
     }
+    // And each one has to be a different sound from the mode it starts from,
+    // or it is a name over a mode. A preset built entirely on controls that
+    // turned out to be unwired --- which several of these nearly were, since
+    // Bloom, Ducking, Auto Gate, Thickness and the attack fade all reached no
+    // stage at all until recently --- resolves perfectly and sounds like the
+    // bare mode, and everything above this line would pass.
+    for p in PRESETS {
+        let i = MODES
+            .iter()
+            .position(|m| m.name == p.mode)
+            .expect("just checked the mode is there");
+        let mut bare = plain_settings(i);
+        super::engine::Reverb::apply_mode(&mut bare, i);
+        bare.mix = 1.0;
+
+        let mut with = bare;
+        for (id, v) in p.set {
+            apply_one(&mut with, id, *v);
+        }
+        // `mix` is set by nearly every preset and is a level, so a preset that
+        // moved nothing else would still differ. Held equal, this compares
+        // the reverb rather than how much of it there is.
+        with.mix = 1.0;
+
+        let a = render_engine(&bare, 1.5);
+        let b = render_engine(&with, 1.5);
+        let diff = energy(
+            &a.iter()
+                .zip(b.iter())
+                .map(|(x, y)| x - y)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            diff / energy(&a).max(1e-9) > 1e-3,
+            "preset \"{}\" sounds like plain \"{}\" --- every control it moves \
+             is either unwired or does nothing at these settings",
+            p.name,
+            p.mode
+        );
+    }
+
     let json = super::preset::factory_json();
     let n = json.as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(n, PRESETS.len(), "factory_json dropped presets");
     println!(
-        "  {} presets, all resolving; factory_json carries {n}",
+        "  {} presets, all resolving and none of them its bare mode; \
+         factory_json carries {n}",
         PRESETS.len()
     );
+}
+
+/// Put one preset entry on to a [`Settings`], in the plain units the preset
+/// table is written in.
+///
+/// The engine reads these through the parameter bridge, which divides the
+/// percentages; a preset says `("duck", 70.0)` and the engine wants `0.7`.
+fn apply_one(s: &mut super::engine::Settings, id: &str, v: f32) {
+    use super::colour::Era;
+    use super::shape::Kind as ShapeKind;
+    match id {
+        "mix" => s.mix = v / 100.0,
+        "output" => s.output = v / 100.0,
+        "decay" => {
+            s.decay = v;
+            s.curve.base = v;
+        }
+        "size" => s.size = v,
+        "density" => s.density = v / 100.0,
+        "attack" => s.attack_ms = v,
+        "predelay" => s.predelay_ms = v,
+        "predelay_sync" => {
+            s.predelay_sync = v as usize;
+            s.tempo = Some(120.0);
+        }
+        "predelay_offset" => s.predelay_offset = v,
+        "width" => s.width = v / 100.0,
+        "mod_rate" => s.mod_rate = v,
+        "mod_depth" => s.mod_depth = v / 100.0,
+        "mod_random" => s.mod_random = v / 100.0,
+        "mod_chaos" => s.mod_chaos = v / 100.0,
+        "early_level" => s.early_level = v / 100.0,
+        "early_size" => s.early_size = v,
+        "early_absorb" => s.early_absorb = v / 100.0,
+        "early_taps" => s.early_taps = v as usize,
+        "shift" => s.shift = v,
+        "shift_mix" => s.shift_mix = v / 100.0,
+        "shift_window" => s.shift_window = v,
+        "shape" => s.shape = ShapeKind::from_index(v as usize),
+        "shape_hold" => s.shape_hold = v,
+        "era" => s.era = Era::from_index(v as usize),
+        "era_amount" => s.era_amount = v / 100.0,
+        "tension" => s.tension = v / 100.0,
+        "sections" => s.sections = v as usize,
+        "lines" => s.lines = v as usize,
+        "tape_mix" => s.tape_mix = v / 100.0,
+        "tape_time" => s.tape_time = v,
+        "tape_heads" => s.tape_heads = v as usize,
+        "tape_feedback" => s.tape_feedback = v / 100.0,
+        "tape_wobble" => s.tape_wobble = v / 100.0,
+        "tape_drive" => s.tape_drive = v / 100.0,
+        "choir_amount" => s.choir_amount = v / 100.0,
+        "choir_vowel" => s.choir_vowel = v,
+        "choir_spread" => s.choir_spread = v / 100.0,
+        "choir_resonance" => s.choir_resonance = v / 100.0,
+        "distance" => s.distance = v / 100.0,
+        "thickness" => s.thickness = v / 100.0,
+        "duck" => s.duck = v / 100.0,
+        "duck_release" => s.duck_release = v,
+        "gate" => s.gate = v / 100.0,
+        "gate_hold" => s.gate_hold = v,
+        "bloom" => s.bloom = v / 100.0,
+        "bloom_time" => s.bloom_time = v,
+        "bloom_swell" => s.bloom_swell = v,
+        _ => {
+            let rest = id
+                .strip_prefix("band")
+                .unwrap_or_else(|| panic!("a preset sets `{id}`, which this test cannot apply"));
+            let (n, field) = rest.split_once('_').expect("bandN_field");
+            let b = &mut s.curve.bands[n.parse::<usize>().expect("a band number") - 1];
+            match field {
+                "on" => b.on = v > 0.5,
+                "shape" => b.shape = super::decay::Shape::from_index(v as usize),
+                "freq" => b.freq = v,
+                "mult" => b.mult = v,
+                "width" => b.width = v,
+                _ => panic!("a preset sets `{id}`, whose field this test cannot apply"),
+            }
+        }
+    }
 }
 
 /// A tilt has to tilt: longer at the bottom, shorter at the top, from one

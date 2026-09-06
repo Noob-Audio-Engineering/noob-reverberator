@@ -62,7 +62,7 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 
 | mode | architecture | drawn | measured at 1 kHz | worst band |
 |---|---|---|---|---|
-| Concert Hall | network | 3.20 s | 3.21 s | 0.019 oct at 125 Hz |
+| Concert Hall | network | 3.20 s | 3.21 s | 0.014 oct at 125 Hz |
 | Bright Hall | network | 3.00 s | 3.00 s | 0.023 oct at 125 Hz |
 | Room | network | 1.40 s | 1.40 s | 0.020 oct at 125 Hz |
 | Chamber | network | 2.20 s | 2.20 s | 0.017 oct at 500 Hz |
@@ -70,27 +70,30 @@ A mode sets the decay, the size, the density and the rest; this runs each one as
 | Small Plate | plate | 1.20 s | 1.05 s | 0.284 oct at 125 Hz |
 | Spring | spring | 1.80 s | 2.12 s | 0.258 oct at 125 Hz |
 | Reflections | early | 0.35 s | no tail to measure | — |
-| Ambience | network | 1.10 s | 1.10 s | 0.072 oct at 125 Hz |
-| Cloud | network | 12.00 s | 12.00 s | 0.001 oct at 125 Hz |
+| Ambience | network | 1.10 s | 1.11 s | 0.085 oct at 125 Hz |
+| Cloud | network | 12.00 s | 12.00 s | 0.002 oct at 125 Hz |
 | Echoverb | network | 9.00 s | 8.99 s | 0.005 oct at 125 Hz |
-| Shimmer | network | 4.00 s | 4.00 s | 0.001 oct at 4000 Hz |
-| Undertow | network | 5.00 s | 5.00 s | 0.002 oct at 500 Hz |
+| Shimmer | network | 4.00 s | 4.00 s | 0.002 oct at 500 Hz |
+| Undertow | network | 5.00 s | 5.00 s | 0.003 oct at 500 Hz |
 | Gated | network | 1.60 s | 1.61 s | 0.009 oct at 4000 Hz |
 | Reverse | network | 2.00 s | 2.01 s | 0.014 oct at 125 Hz |
-| Swell | network | 6.00 s | 6.00 s | 0.025 oct at 125 Hz |
-| Nineteen Seventy Nine | network | 3.50 s | 2.93 s | 0.259 oct at 1000 Hz |
+| Swell | network | 6.00 s | 5.99 s | 0.025 oct at 125 Hz |
+| Nineteen Seventy Nine | network | 3.50 s | 2.92 s | 0.264 oct at 1000 Hz |
 | Nineteen Eighty Four | plate | 2.60 s | 2.11 s | 0.318 oct at 4000 Hz |
-| Magneto | network | 2.20 s | 2.46 s | 0.241 oct at 500 Hz |
-| Chorale | network | 7.00 s | 7.01 s | 0.007 oct at 125 Hz |
-| Choir Loft | network | 9.00 s | 9.01 s | 0.004 oct at 125 Hz |
+| Magneto | network | 2.20 s | 2.46 s | 0.240 oct at 500 Hz |
+| Chorale | network | 7.00 s | 7.00 s | 0.005 oct at 125 Hz |
+| Choir Loft | network | 9.00 s | 8.99 s | 0.003 oct at 125 Hz |
 | Tape Chamber | network | 2.00 s | 1.79 s | 0.162 oct at 1000 Hz |
 | Long Spring | spring | 3.00 s | 3.39 s | 0.192 oct at 125 Hz |
-| Supermassive | network | 30.00 s | 30.01 s | 0.001 oct at 500 Hz |
+| Supermassive | network | 30.00 s | 29.99 s | 0.000 oct at 1000 Hz |
 | Nonlinear Plate | plate | 0.90 s | 1.03 s | 0.201 oct at 1000 Hz |
 | Tight Ambience | network | 0.45 s | 0.46 s | 0.040 oct at 500 Hz |
-| Bloom | network | 3.60 s | 3.60 s | 0.007 oct at 500 Hz |
-| Far Hall | network | 5.00 s | 5.01 s | 0.038 oct at 125 Hz |
-| Thick Chamber | network | 2.40 s | 2.40 s | 0.013 oct at 125 Hz |
+| Bloom | network | 3.60 s | 3.60 s | 0.015 oct at 125 Hz |
+| Far Hall | network | 5.00 s | 5.01 s | 0.036 oct at 125 Hz |
+| Thick Chamber | network | 2.40 s | 2.40 s | 0.011 oct at 125 Hz |
+| Chaotic Hall | network | 3.60 s | 3.60 s | 0.004 oct at 125 Hz |
+| Chaotic Chamber | network | 1.90 s | 1.91 s | 0.009 oct at 1000 Hz |
+| Chaotic Neutral | network | 2.80 s | 2.80 s | 0.002 oct at 500 Hz |
 
 ### What the era colouring does to the reading
 
@@ -98,7 +101,7 @@ The colouring sits on the tank's output, not inside its feedback, so it cannot c
 
 | mode | era | measured at 1 kHz |
 |---|---|---|
-| Nineteen Seventy Nine | on | 2.93 s |
+| Nineteen Seventy Nine | on | 2.92 s |
 | Nineteen Seventy Nine | off | 3.51 s |
 | Nineteen Eighty Four | on | 2.11 s |
 | Nineteen Eighty Four | off | 2.16 s |

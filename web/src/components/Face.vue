@@ -129,10 +129,11 @@ const modeNames = list.map((x) => x.name);
 // which meant the Spring controls stayed dimmed while the spring was running.
 const current = computed(() => list[mode.index ?? 0] ?? {});
 const arch = computed(() => current.value.arch ?? 'network');
-// Only the bands that exist. There are still six parameter slots underneath
-// --- a host stores automation by index, so the list cannot grow --- but a
-// slot nobody is using is not a control, and six empty strips ask somebody to
-// think about slots instead of about the reverb.
+// Only the bands that exist. There are still thirty-two parameter slots
+// underneath --- a host stores automation by index, so the list cannot grow ---
+// but a
+// slot nobody is using is not a control, and a wall of empty strips asks
+// somebody to think about slots instead of about the reverb.
 </script>
 
 <template>

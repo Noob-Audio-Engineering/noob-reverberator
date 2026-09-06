@@ -201,6 +201,62 @@ pub static PRESETS: &[Preset] = &[
             ("mod_depth", 40.0),
         ],
     },
+    Preset {
+        name: "Restless Hall",
+        blurb: "A long tail that never settles into a ring.",
+        mode: "Chaotic Hall",
+        set: &[
+            ("mix", 38.0),
+            ("decay", 6.5),
+            ("mod_chaos", 85.0),
+            ("mod_depth", 45.0),
+        ],
+    },
+    Preset {
+        name: "Driven Plate",
+        blurb: "Hit hard enough that the transducer gives way.",
+        mode: "Plate",
+        set: &[
+            ("mix", 42.0),
+            ("decay", 2.8),
+            ("thickness", 80.0),
+            ("density", 85.0),
+        ],
+    },
+    Preset {
+        name: "Out Of The Way",
+        blurb: "Ducks under the take and comes back between the words.",
+        mode: "Concert Hall",
+        set: &[
+            ("mix", 46.0),
+            ("decay", 3.4),
+            ("duck", 70.0),
+            ("duck_release", 320.0),
+            ("predelay", 35.0),
+        ],
+    },
+    Preset {
+        name: "On The Eighth",
+        blurb: "A pre-delay that follows the session rather than the millisecond.",
+        mode: "Chamber",
+        set: &[
+            ("mix", 40.0),
+            ("decay", 2.2),
+            ("predelay_sync", 4.0),
+            ("early_level", 45.0),
+        ],
+    },
+    Preset {
+        name: "Cut It Short",
+        blurb: "A big room with the tail taken off it.",
+        mode: "Supermassive",
+        set: &[
+            ("mix", 44.0),
+            ("decay", 8.0),
+            ("gate", 85.0),
+            ("gate_hold", 180.0),
+        ],
+    },
 ];
 
 /// The presets as JSON for the page, with each mode resolved to its index.

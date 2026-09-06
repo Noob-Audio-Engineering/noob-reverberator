@@ -2,11 +2,11 @@
 /**
  * The selected band's controls, floating over the bottom of the curve.
  *
- * There is no row of six strips. A slot nobody is using is not a control, and
- * six panels sitting there whether or not they are used ask somebody to think
- * about slots rather than about the reverb. A band is made by clicking the
- * curve and shaped here, and when nothing is selected this is not on the
- * screen at all.
+ * There is no row of strips, one per slot. A slot nobody is using is not a
+ * control, and thirty-two panels sitting there whether or not they are used
+ * ask somebody to think about slots rather than about the reverb. A band is
+ * made by clicking the curve and shaped here, and when nothing is selected
+ * this is not on the screen at all.
  */
 import { computed } from 'vue';
 import { Knob, Segmented } from '@noob-audio-engineering/noob-vst-webgui-framework/vue';
