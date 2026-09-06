@@ -2673,3 +2673,93 @@ fn the_block_size_does_not_change_the_output() {
         println!("  {arch:?}: identical in blocks of 37, 64, 128, 512 and all at once");
     }
 }
+
+/// **One bad sample from the host must not end the plug-in.**
+///
+/// Three of the four architectures feed back, and a feedback loop has no way
+/// to get rid of a `NaN`: every sum it takes part in is `NaN` too, so one bad
+/// sample circulates for ever. Measured before the guard existed, a single
+/// 64-sample block of `NaN` left the network, the plate and the spring
+/// producing `NaN` two seconds later --- every sample of the last half
+/// second, not some of them --- and a block of `1e30` left them at infinity.
+/// In a session that is a track that has gone silent, or worse a `NaN` on the
+/// mix bus, until somebody reloads the plug-in. Only the early-reflection
+/// architecture came through, because it is the one with no loop.
+///
+/// Hosts do hand out rubbish --- an uninitialised buffer on the first block, a
+/// plug-in upstream that has itself gone wrong --- so this is worth a branch
+/// per sample.
+///
+/// Recovery is measured against a **clean run of the same audio**, not merely
+/// against being finite. A tank that survives by muting itself is also finite,
+/// and would pass the easy version of this test.
+#[test]
+fn a_bad_block_from_the_host_does_not_end_the_reverb() {
+    use super::engine::Reverb;
+    use super::mode::{Arch, MODES};
+
+    const FS: f32 = 48_000.0;
+
+    for arch in [Arch::Network, Arch::Plate, Arch::Spring, Arch::Early] {
+        let i = MODES.iter().position(|m| m.arch == arch).expect("an arch");
+        let mut s = plain_settings(i);
+        Reverb::apply_mode(&mut s, i);
+        s.mode = i;
+        s.mix = 1.0;
+
+        // Two seconds of ordinary music, the same every time.
+        let n = (FS * 2.0) as usize;
+        let mut seed = 3u32;
+        let music: Vec<f32> = (0..n)
+            .map(|_| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((seed >> 9) as f32 / 4_194_304.0 - 1.0) * 0.3
+            })
+            .collect();
+
+        let run = |before: Option<f32>| -> Vec<f32> {
+            let mut rev = Reverb::new(FS);
+            rev.configure(&s);
+            if let Some(bad) = before {
+                let mut l = vec![bad; 64];
+                let mut r = l.clone();
+                rev.process(&s, &mut l, &mut r);
+            }
+            let mut l = music.clone();
+            let mut r = music.clone();
+            rev.process(&s, &mut l, &mut r);
+            // The last half second only: the tank is allowed a moment to
+            // flush what it was given, it is not allowed to stay broken.
+            l[l.len() - (FS * 0.5) as usize..].to_vec()
+        };
+
+        let clean = run(None);
+        let want = energy(&clean);
+        assert!(want > 1e-4, "{arch:?} produced nothing to compare against");
+
+        for (name, bad) in [
+            ("NaN", f32::NAN),
+            ("negative infinity", f32::NEG_INFINITY),
+            ("infinity", f32::INFINITY),
+            ("1e30", 1e30f32),
+        ] {
+            let out = run(Some(bad));
+            let broken = out.iter().filter(|v| !v.is_finite()).count();
+            assert_eq!(
+                broken,
+                0,
+                "{arch:?} was still producing {broken} non-finite samples of {} \
+                 two seconds after a block of {name}",
+                out.len()
+            );
+            let got = energy(&out);
+            let ratio = got / want;
+            assert!(
+                (0.9..1.1).contains(&ratio),
+                "{arch:?} came back at {ratio:.3} of its clean level after a block \
+                 of {name}, so it survived without recovering"
+            );
+        }
+        println!("  {arch:?}: recovers from NaN, both infinities and 1e30");
+    }
+}

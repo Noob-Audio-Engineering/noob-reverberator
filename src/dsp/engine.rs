@@ -704,7 +704,24 @@ impl Reverb {
         let n = l.len().min(r.len());
         let lines = self.net.lines();
         for i in 0..n {
-            let (dry_l, dry_r) = (l[i], r[i]);
+            // **Nothing that is not a number gets into the tank.**
+            //
+            // Three of the four architectures feed back, and a feedback loop
+            // has no way to get rid of a `NaN`: every sum it takes part in is
+            // `NaN`, so one bad sample from the host circulates for ever and
+            // the plug-in is dead until somebody reloads it. Measured, before
+            // this was here, a single 64-sample block of `NaN` left the
+            // network, the plate and the spring producing `NaN` two seconds
+            // later --- every sample, not some of them --- and a block of
+            // 1e30 left them at infinity. Only the early-reflection
+            // architecture survived, because it is the one with no loop.
+            //
+            // Hosts do hand out rubbish: an uninitialised buffer on the first
+            // block, a plug-in upstream that has itself gone wrong. The clamp
+            // is set far above any real signal --- full scale is 1.0 and this
+            // allows sixteen --- so it never touches music and only catches
+            // what was already broken.
+            let (dry_l, dry_r) = (sane(l[i]), sane(r[i]));
 
             // Pre-delay first: it is the gap before the room answers, so
             // everything after it is the room.
@@ -923,4 +940,19 @@ fn curves_match(a: &Curve, b: &Curve) -> bool {
             && x.mult == y.mult
             && x.width == y.width
     })
+}
+
+/// One sample from the host, made safe to put into a loop.
+///
+/// `NaN` and the infinities become silence; anything finite but absurd is
+/// clamped. See the comment at the top of [`Reverb::process`] for what
+/// happens without this --- the short version is that a feedback loop cannot
+/// clear a `NaN` by itself, so the plug-in never comes back.
+#[inline]
+fn sane(x: f32) -> f32 {
+    if x.is_finite() {
+        x.clamp(-16.0, 16.0)
+    } else {
+        0.0
+    }
 }
