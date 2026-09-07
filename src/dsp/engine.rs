@@ -675,7 +675,12 @@ impl Reverb {
         self.fft.process(&mut self.fft_buf);
 
         let lo = super::loss::FIT_BOTTOM;
-        let hi = super::loss::FIT_TOP;
+        // **The top of the band follows Nyquist**, exactly as the fit grid
+        // does (`loss::Spec::grid`, which is already `(fs * 0.45).min(...)`).
+        // Left at a flat 20 kHz, every cell above Nyquist asked for an FFT
+        // bin past the end of the spectrum: at 22.05 kHz the last cell wanted
+        // bin ~930 of a 512-bin half-spectrum.
+        let hi = (self.fs * 0.45).min(super::loss::FIT_TOP).max(lo * 2.0);
         let bin_hz = self.fs / n as f32;
         let points = out.len().max(2);
         for (i, o) in out.iter_mut().enumerate() {
@@ -683,8 +688,16 @@ impl Reverb {
             let f0 = lo * (hi / lo).powf((i as f32 - 0.5) / (points - 1) as f32);
             let f1 = lo * (hi / lo).powf((i as f32 + 0.5) / (points - 1) as f32);
             let _ = t;
-            let k0 = ((f0 / bin_hz).floor() as usize).max(1);
-            let k1 = ((f1 / bin_hz).ceil() as usize).min(n / 2 - 1).max(k0);
+            // **Both ends clamped, and `k1` after `k0`.** `k1` was held to
+            // the half-spectrum and then `.max(k0)` put it straight back
+            // over the top, because `k0` had no upper bound of its own. With
+            // a band that ran past Nyquist that produced `k0 > buf.len()`
+            // and the slice panicked --- inside `process`, on the audio
+            // thread, where a panic cannot unwind and so aborts the host.
+            // `auval` found it at the first low sample rate it tried.
+            let top = n / 2 - 1;
+            let k0 = ((f0 / bin_hz).floor() as usize).clamp(1, top);
+            let k1 = ((f1 / bin_hz).ceil() as usize).clamp(k0, top);
             let mut peak = 0.0f32;
             for c in &self.fft_buf[k0..=k1] {
                 peak = peak.max(c.norm_sqr());
@@ -1026,5 +1039,39 @@ fn sane(x: f32) -> f32 {
         x.clamp(-16.0, 16.0)
     } else {
         0.0
+    }
+}
+
+#[cfg(test)]
+mod spectrum_tests {
+    use super::*;
+
+    /// **The spectrum can be filled at any sample rate a host offers.**
+    ///
+    /// The band was pinned to 20 kHz while the FFT only ever has `SPEC_N / 2`
+    /// bins, so below about 45 kHz the top cells indexed past the end and the
+    /// slice panicked --- on the audio thread, inside `process`, where a
+    /// panic aborts the host rather than failing. `auval` hit it on its first
+    /// low-rate render and took the validation down with it.
+    ///
+    /// The rates are the ones `auval` actually walks through.
+    #[test]
+    fn fill_spectrum_stays_inside_the_fft_at_every_rate() {
+        for fs in [
+            8_000.0, 11_025.0, 16_000.0, 22_050.0, 44_100.0, 48_000.0, 96_000.0, 192_000.0,
+        ] {
+            let mut e = Reverb::new(fs);
+            // A couple of odd widths as well as a plausible grid: the cell
+            // edges are computed from `out.len()`, so the width is part of
+            // the arithmetic that overran.
+            for points in [2usize, 3, 64, 128] {
+                let mut out = vec![0.0f32; points];
+                e.fill_spectrum(&mut out);
+                assert!(
+                    out.iter().all(|v| v.is_finite()),
+                    "fs {fs}, {points} points: produced a non-finite value"
+                );
+            }
+        }
     }
 }
