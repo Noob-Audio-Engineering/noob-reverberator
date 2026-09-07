@@ -173,7 +173,10 @@ jobs:
           # working when somebody installs it without the CLAP beside it.
           cat > .au/CMakeLists.txt <<CMAKE
           cmake_minimum_required(VERSION 3.21)
-          project(noob_au VERSION ${ver} LANGUAGES C CXX)
+          # OBJC and OBJCXX are not optional: the AUv2 wrapper is Objective-C++,
+          # and without them CMake configures cleanly and then fails to generate
+          # with a missing CMAKE_OBJCXX_COMPILE_OBJECT.
+          project(noob_au VERSION ${ver} LANGUAGES C CXX OBJC OBJCXX)
           set(CMAKE_CXX_STANDARD 17)
           set(CLAP_WRAPPER_DOWNLOAD_DEPENDENCIES ON CACHE BOOL "" FORCE)
           set(CLAP_WRAPPER_BUILD_AUV2 ON CACHE BOOL "" FORCE)
