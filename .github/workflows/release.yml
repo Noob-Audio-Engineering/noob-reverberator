@@ -184,8 +184,22 @@ jobs:
           # An Audio Unit that is not registered as one is a folder. The
           # component type, subtype and manufacturer live here, and a bundle
           # missing them loads and is never offered by any host.
-          /usr/libexec/PlistBuddy -c "Print :AudioComponents:0:type" "$comp/Contents/Info.plist" \
+          got=$(/usr/libexec/PlistBuddy -c "Print :AudioComponents:0:type" "$comp/Contents/Info.plist") \
             || { echo "no AudioComponents entry --- no host will list this"; exit 1; }
+          # **An instrument has to register as one.** `aumu` is a music device
+          # and `aufx` an effect, and a host reads that code to decide which
+          # slot the plug-in is offered in --- an instrument typed as an effect
+          # loads perfectly and can never be put on an instrument track, which
+          # is the same shape as an arm64 build that calls itself universal.
+          # The crate already says which it is, so this asks the crate.
+          kind=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import json,sys; print((json.load(sys.stdin)['packages'][0].get('metadata') or {}).get('noob',{}).get('kind','effect'))")
+          case "$kind" in
+            instrument) want=aumu ;;
+            *)          want=aufx ;;
+          esac
+          echo "component type: $got (the crate calls itself a $kind, so $want)"
+          [ "$got" = "$want" ] || { echo "a $kind registered as $got"; exit 1; }
           echo "architectures: $(lipo -archs "$bin")"
           for want in arm64 x86_64; do
             lipo -archs "$bin" | grep -qw "$want" \
